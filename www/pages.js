@@ -276,8 +276,11 @@ function pageMore() {
 function pageSettings() {
   const days = S.settings.lastBackup ? Core.diffDays(S.settings.lastBackup, today()) : null;
   let h = '<form class="card" id="setf"><label class="fld"><span>نام کسب‌وکار (روی گزارش‌ها)</span><input class="inp" name="business" value="' + esc(S.settings.business) + '"></label>' + moneyField('openingCash', S.settings.openingCash, 'موجودی اولیه صندوق/بانک') + '<button class="btn blue" type="submit">ذخیره تنظیمات</button></form>';
+  const st = S.settings, th = st.theme || 'auto', ac = st.accent || 'blue', fs = Number(st.fontScale) || 1;
+  h += '<div class="card"><div class="ch">🎨 ظاهر برنامه</div><div class="seg">' + [['light', '☀️ روز'], ['dark', '🌙 شب'], ['auto', '📱 خودکار']].map(x => '<button type="button" class="' + (th === x[0] ? 'on' : '') + '" data-act="setTheme" data-v="' + x[0] + '">' + x[1] + '</button>').join('') + '</div><div class="sw">' + Object.keys(ACCENTS).map(k => '<button type="button" title="' + ACCENTS[k][2] + '" class="' + (ac === k ? 'on' : '') + '" style="background:' + ACCENTS[k][0] + '" data-act="setAccent" data-v="' + k + '"></button>').join('') + '</div><div class="fsr"><button type="button" data-act="fontStep" data-v="-1">A−</button><span class="v">اندازه نوشته: ' + fa(Math.round(fs * 100)) + '٪</span><button type="button" data-act="fontStep" data-v="1">A+</button></div><button type="button" class="lnk center" data-act="fontStep" data-v="0">بازگشت به اندازه عادی</button></div>';
   h += '<div class="card"><div class="ch">💾 پشتیبان‌گیری</div><p class="hint">' + (days === null ? 'هنوز پشتیبان نگرفته‌اید.' : 'آخرین پشتیبان: ' + fmtDate(S.settings.lastBackup) + ' (' + fa(days) + ' روز پیش)') + '</p><p class="hint">اطلاعات فقط روی همین گوشی است. با حذف برنامه یا پاک‌کردن اطلاعات مرورگر از بین می‌رود؛ پس مرتب پشتیبان بگیرید و فایل را برای خودتان (مثلاً تلگرام/Drive) بفرستید.</p><div class="row2"><button class="btn green" data-act="backup">دریافت پشتیبان</button><button class="btn ghost" data-act="restore">بازیابی از فایل</button></div><input type="file" id="restore-file" accept=".json,application/json" hidden></div>';
-  h += '<div class="card"><div class="ch">🔒 قفل برنامه</div>' + (S.settings.pinHash ? '<div class="row2"><button class="btn ghost" data-act="setPin">تغییر رمز</button><button class="btn ghost red" data-act="removePin">حذف رمز</button></div>' : '<button class="btn ghost" data-act="setPin">فعال‌سازی رمز ۴ رقمی</button>') + '</div>';
+  const au = S.settings.auth || {};
+  h += '<div class="card"><div class="ch">👤 حساب کاربری</div><p class="hint">نام کاربری: <b>' + esc(au.user || '') + '</b></p><div class="row2"><button class="btn ghost" data-act="changePass">تغییر رمز</button><button class="btn ghost" data-act="newCode">کد بازیابی جدید</button></div><button class="btn ghost" data-act="logout">🔒 خروج و قفل برنامه</button></div>';
   h += '<div class="card"><div class="ch">🔎 بررسی سلامت اطلاعات</div><p class="hint">صحت ارتباط تراکنش‌ها، فاکتورها و موجودی انبار را بررسی می‌کند.</p><button class="btn ghost" data-act="audit">اجرای بررسی</button></div>';
   h += '<div class="card"><div class="ch">⚠️ حذف همه اطلاعات</div><button class="btn red" data-act="wipe">پاک‌کردن کامل برنامه</button></div><p class="hint center">تعداد: ' + fa(S.people.length) + ' شخص · ' + fa(S.products.length) + ' کالا · ' + fa(S.invoices.length) + ' فاکتور · ' + fa(S.tx.length) + ' تراکنش</p>';
   return { title: 'تنظیمات', html: h, back: '#/more', mount: () => { $('#setf').onsubmit = async e => { e.preventDefault(); const f = e.target, oc = f.openingCash.value.trim() === '' ? 0 : Core.parseMoney(f.openingCash.value); if (isNaN(oc)) return toast('مبلغ نامعتبر است.', true); S.settings.business = f.business.value.trim(); S.settings.openingCash = oc; await save(); toast('ذخیره شد.'); render(); }; $('#restore-file').onchange = restoreFile; } };
@@ -287,7 +290,7 @@ async function restoreFile(e) {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return; const text = await file.text(); const r = Core.parseBackup(text); if (!r.ok) return toast(r.error, true);
   const st = r.state; if (!(await confirmBox('اطلاعات فعلی کاملاً با فایل پشتیبان جایگزین می‌شود (' + fa(st.people.length) + ' شخص، ' + fa(st.invoices.length) + ' فاکتور، ' + fa(st.tx.length) + ' تراکنش). ادامه می‌دهید؟', 'جایگزین کن', true))) return;
   try { await kvSet('state_before_restore', JSON.stringify(S)); } catch (x) { /* ignore */ }
-  S = Object.assign(Core.emptyState(), st); await save(); toast('بازیابی انجام شد.'); goHash('#/home'); render();
+  const au0 = S.settings.auth; S = Object.assign(Core.emptyState(), st); if (!S.settings.auth && au0) S.settings.auth = au0; applyAppearance(S.settings); await save(); toast('بازیابی انجام شد.'); goHash('#/home'); render();
 }
 
 /* ─────────── PIN lock ─────────── */
@@ -300,9 +303,9 @@ function pinPad(title, cb, o) {
   return sh;
 }
 let lockedNow = false;
-function showLock() {
+function showLockLegacy() {
   if (!S.settings.pinHash) return; lockedNow = true;
-  pinPad('رمز برنامه را وارد کنید', async v => { if (await hashPin(v, S.settings.pinSalt) === S.settings.pinHash) { lockedNow = false; sheetStack.filter(s => s.o.lock).forEach(s => s.close(true)); return true; } return false; }, { lock: true, extra: '<button class="lnk center" id="forgot">رمز را فراموش کرده‌ام</button>' });
+  pinPad('رمز برنامه را وارد کنید', async v => { if (await hashPin(v, S.settings.pinSalt) === S.settings.pinHash) { lockedNow = false; legacyOk = true; sheetStack.filter(s => s.o.lock).forEach(s => s.close(true)); setTimeout(() => authGate(), 50); return true; } return false; }, { lock: true, extra: '<button class="lnk center" id="forgot">رمز را فراموش کرده‌ام</button>' });
   const fg = $('#forgot'); if (fg) fg.onclick = async () => { alertBox('فراموشی رمز', 'رمز قابل بازیابی نیست. تنها راه، پاک‌کردن اطلاعات برنامه از تنظیمات گوشی (یا حذف و نصب مجدد) و سپس «بازیابی از فایل پشتیبان» است. اگر پشتیبان ندارید اطلاعات از دست می‌رود.'); };
 }
 function setPin() {
@@ -344,10 +347,13 @@ const actions = {
   csvPeople: async () => { const b = Core.balances(S); await exportFile('balances-' + stamp() + '.csv', csvFile([['نام', 'تلفن', 'مانده', 'وضعیت']].concat(S.people.map(p => [p.name, p.phone, Math.abs(b[p.id]), sign(b[p.id])]))), 'text/csv'); },
   csvInvoices: async () => { await exportFile('invoices-' + stamp() + '.csv', csvFile([['شماره', 'نوع', 'شخص', 'تاریخ', 'جمع', 'تخفیف', 'پرداخت‌شده', 'مانده', 'توضیحات / سریال']].concat(S.invoices.map(i => { const n = Core.invoiceInfo(S, i); return [i.no, Core.TYPE_FA[i.type], personName(i.personId), Core.isoToJalali(i.date), n.total, n.discount, n.paid, n.remaining, invNotes(i).join(' | ')]; }))), 'text/csv'); },
   csvLedger: async () => { await exportFile('ledger-' + stamp() + '.csv', csvFile([['تاریخ', 'شخص', 'شرح', 'اضافه', 'کم']].concat(S.tx.slice().sort((a, b) => a.date < b.date ? -1 : 1).map(t => [Core.isoToJalali(t.date), personName(t.personId), t.desc, t.kind === 'debit' ? t.amount : '', t.kind === 'credit' ? t.amount : '']))), 'text/csv'); },
+  changePass: () => changePass(), newCode: () => newCode(), logout: () => authGate(),
   backup: () => doBackup(), restore: () => $('#restore-file').click(), setPin: () => setPin(),
-  removePin: async () => { if (await confirmBox('قفل برنامه حذف شود؟', 'حذف رمز')) { delete S.settings.pinHash; delete S.settings.pinSalt; await save(); toast('رمز حذف شد.'); render(); } },
+  setTheme: async d => { S.settings.theme = d.v; applyAppearance(S.settings); await save(); render(); },
+  setAccent: async d => { S.settings.accent = d.v; applyAppearance(S.settings); await save(); render(); },
+  fontStep: async d => { const v = Number(d.v); S.settings.fontScale = v === 0 ? 1 : Math.round(Math.min(FS_MAX, Math.max(FS_MIN, (Number(S.settings.fontScale) || 1) + v * 0.1)) * 100) / 100; applyAppearance(S.settings); await save(); render(); },
   audit: () => { const p = Core.audit(S); alertBox('نتیجه بررسی', p.length ? '<b class="debit">' + fa(p.length) + ' مشکل پیدا شد:</b><ul>' + p.slice(0, 10).map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '✅ همه‌چیز سالم است. حساب اشخاص، فاکتورها و موجودی انبار کاملاً هماهنگ‌اند.'); },
-  wipe: async () => { if (!(await confirmBox('همه اطلاعات برنامه برای همیشه پاک می‌شود. قبلش پشتیبان گرفته‌اید؟', 'ادامه', true))) return; const sh = sheet('تأیید نهایی', '<p class="msg">برای تأیید، کلمه «حذف» را بنویسید.</p><input class="inp" id="wp"><button class="btn red" id="wp-ok">پاک کن</button>'); sh.q('#wp-ok').onclick = async () => { if (sh.q('#wp').value.trim() !== 'حذف') return toast('کلمه تأیید درست نیست.', true); sh.close(); S = Core.emptyState(); await save(); toast('همه اطلاعات پاک شد.'); goHash('#/home'); render(); }; }
+  wipe: async () => { if (!(await confirmBox('همه اطلاعات برنامه برای همیشه پاک می‌شود. قبلش پشتیبان گرفته‌اید؟', 'ادامه', true))) return; const sh = sheet('تأیید نهایی', '<p class="msg">برای تأیید، کلمه «حذف» را بنویسید.</p><input class="inp" id="wp"><button class="btn red" id="wp-ok">پاک کن</button>'); sh.q('#wp-ok').onclick = async () => { if (sh.q('#wp').value.trim() !== 'حذف') return toast('کلمه تأیید درست نیست.', true); sh.close(); const au = S.settings.auth; S = Core.emptyState(); if (au) S.settings.auth = au; await save(); toast('همه اطلاعات پاک شد.'); goHash('#/home'); render(); }; }
 };
 function personFormInline() { // quick-add from invoice picker
   const sh = sheet('شخص جدید', '<form id="pq"><label class="fld"><span>نام</span><input class="inp" name="name" autocomplete="off"></label><label class="fld"><span>تلفن</span><input class="inp ltr" name="phone" inputmode="tel"></label><button class="btn blue" type="submit">ذخیره و انتخاب</button></form>');
@@ -380,11 +386,99 @@ document.addEventListener('input', e => {
 let lastFull = '';
 window.addEventListener('hashchange', () => { if ((location.hash || '#/home') !== lastFull) render(); }); // ignore duplicate events for the same address (would wipe an open form)
 
+/* ─────────── account: register / login / recovery ─────────── */
+let legacyOk = false, failN = 0, failUntil = 0;
+const SEC_QS = ['نام اولین مدرسه‌ی من چه بود؟', 'نام شهر تولد من چیست؟', 'نام بهترین دوست دوران کودکی من؟', 'مدل اولین گوشی من چه بود؟', 'نام حیوان خانگی (یا مورد علاقه) من؟'];
+const normAns = s => Core.toEn(String(s || '')).replace(/[\s‌\-]+/g, '').toLowerCase();
+const normCode = s => Core.toEn(String(s || '')).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+function genCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', b = new Uint8Array(12); (window.crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach((_, i) => b[i] = Math.floor(Math.random() * 256)); const s = Array.from(b).map(x => A[x % A.length]).join(''); return s.slice(0, 4) + '-' + s.slice(4, 8) + '-' + s.slice(8, 12); }
+const newSalt = () => String(Math.random()).slice(2) + Date.now();
+async function mkAuth(user, pass, q, ans, code, old) {
+  const a = Object.assign({}, old || {}); a.user = user; if (pass !== null) { a.salt = newSalt(); a.hash = await hashPin(pass, a.salt); }
+  if (q !== undefined) { a.q = q; a.asalt = newSalt(); a.ahash = await hashPin(normAns(ans), a.asalt); }
+  if (code) { a.rsalt = newSalt(); a.rhash = await hashPin(normCode(code), a.rsalt); }
+  return a;
+}
+function authOverlay(html) {
+  let o = $('#auth'); if (!o) { o = document.createElement('div'); o.id = 'auth'; document.body.appendChild(o); }
+  o.innerHTML = '<div class="auth-box"><img class="auth-logo" src="logo.png" alt="">' + html + '</div>'; return o;
+}
+function authClose() { const o = $('#auth'); if (o) o.remove(); lockedNow = false; }
+function pwField(name, label) { return '<label class="fld"><span>' + label + '</span><input class="inp ltr" type="password" name="' + name + '" autocomplete="off"></label>'; }
+function authGate(relock) {
+  if (!S.settings.auth) { if (S.settings.pinHash && !legacyOk) { showLockLegacy(); return; } return authRegister(); }
+  lockedNow = true; authLogin();
+}
+function authRegister() {
+  lockedNow = true;
+  const o = authOverlay('<h2>ثبت‌نام</h2><p class="hint center">یک نام کاربری و رمز برای ورود به برنامه بسازید. اطلاعات فعلی شما حفظ می‌شود.</p><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" autocomplete="off" autocapitalize="none"></label>' + pwField('p1', 'رمز (حداقل ۶ نویسه)') + pwField('p2', 'تکرار رمز') + '<label class="fld"><span>سؤال امنیتی (برای بازیابی رمز)</span><select class="inp" name="q">' + SEC_QS.map(q => '<option>' + q + '</option>').join('') + '</select></label><label class="fld"><span>پاسخ</span><input class="inp" name="a" autocomplete="off"></label><button class="btn blue" type="submit">ثبت‌نام</button></form>');
+  $('#af', o).onsubmit = async e => {
+    e.preventDefault(); const f = e.target, u = f.u.value.trim(), p1 = f.p1.value, p2 = f.p2.value, a = f.a.value.trim();
+    if (u.length < 3) return toast('نام کاربری حداقل ۳ نویسه باشد.', true);
+    if (p1.length < 6) return toast('رمز حداقل ۶ نویسه باشد.', true);
+    if (p1 !== p2) return toast('تکرار رمز یکسان نیست.', true);
+    if (normAns(a).length < 2) return toast('پاسخ سؤال امنیتی را بنویسید.', true);
+    const code = genCode(); S.settings.auth = await mkAuth(u, p1, f.q.value, a, code); delete S.settings.pinHash; delete S.settings.pinSalt; await save();
+    showCode(code, () => { authClose(); toast('خوش آمدید.'); render(); });
+  };
+}
+function showCode(code, next) {
+  const o = authOverlay('<h2>کد بازیابی شما</h2><p class="hint center">اگر رمز را فراموش کردید، با این کد می‌توانید رمز جدید بسازید. آن را جای امن (عکس صفحه، پیام به خودتان) نگه دارید. این کد دوباره نمایش داده نمی‌شود.</p><div class="rcode">' + code + '</div><div class="row2"><button class="btn ghost" id="cc">کپی / ارسال</button></div><label class="chk"><input type="checkbox" id="sv"> کد را ذخیره کردم</label><button class="btn blue" id="cn">ادامه</button>');
+  $('#cc', o).onclick = () => shareText('کد بازیابی فیکس کوییک: ' + code);
+  $('#cn', o).onclick = () => { if (!$('#sv', o).checked) return toast('ابتدا کد را ذخیره کنید و تیک را بزنید.', true); next(); };
+}
+function authLogin() {
+  const au = S.settings.auth;
+  const o = authOverlay('<h2>ورود</h2><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" value="' + esc(au.user) + '" autocomplete="off" autocapitalize="none"></label>' + pwField('p', 'رمز') + '<button class="btn blue" type="submit">ورود</button></form><button class="lnk center" id="fg">رمز را فراموش کرده‌ام</button>');
+  $('#af', o).onsubmit = async e => {
+    e.preventDefault(); const f = e.target;
+    if (Date.now() < failUntil) return toast('چند بار اشتباه زدید؛ ' + fa(Math.ceil((failUntil - Date.now()) / 1000)) + ' ثانیه صبر کنید.', true);
+    const ok = f.u.value.trim().toLowerCase() === au.user.toLowerCase() && await hashPin(f.p.value, au.salt) === au.hash;
+    if (ok) { failN = 0; authClose(); render(); return; }
+    failN++; if (failN >= 5) { failUntil = Date.now() + Math.min(300, 15 * (failN - 4)) * 1000; } toast('نام کاربری یا رمز اشتباه است.', true); f.p.value = '';
+  };
+  $('#fg', o).onclick = authForgot;
+}
+function authForgot() {
+  const au = S.settings.auth;
+  const o = authOverlay('<h2>بازیابی رمز</h2><p class="hint center">یکی از دو راه را انتخاب کنید.</p><form id="af"><label class="fld"><span>کد بازیابی (مثل ABCD-EFGH-JKLM)</span><input class="inp ltr" name="c" autocomplete="off"></label><p class="hint center">— یا —</p><div class="hint">' + esc(au.q || '') + '</div><input class="inp" name="a" placeholder="پاسخ سؤال امنیتی" autocomplete="off"><button class="btn blue" type="submit">تأیید</button></form><button class="lnk center" id="bk">بازگشت</button><p class="hint center">اگر هر دو را ندارید، تنها راه، حذف برنامه و نصب دوباره و «بازیابی از فایل پشتیبان» است.</p>');
+  $('#bk', o).onclick = authLogin;
+  $('#af', o).onsubmit = async e => {
+    e.preventDefault(); const f = e.target, c = normCode(f.c.value), a = normAns(f.a.value);
+    if (Date.now() < failUntil) return toast('کمی صبر کنید و دوباره تلاش کنید.', true);
+    let ok = false;
+    if (c && au.rhash && await hashPin(c, au.rsalt) === au.rhash) ok = true;
+    else if (!c && a && au.ahash && await hashPin(a, au.asalt) === au.ahash) ok = true;
+    if (!ok) { failN++; if (failN >= 5) failUntil = Date.now() + 60e3; return toast('کد یا پاسخ درست نیست.', true); }
+    failN = 0; authReset();
+  };
+}
+function authReset() {
+  const o = authOverlay('<h2>رمز جدید</h2><form id="af">' + pwField('p1', 'رمز جدید (حداقل ۶ نویسه)') + pwField('p2', 'تکرار رمز') + '<button class="btn blue" type="submit">ذخیره و ورود</button></form>');
+  $('#af', o).onsubmit = async e => {
+    e.preventDefault(); const f = e.target; if (f.p1.value.length < 6) return toast('رمز حداقل ۶ نویسه باشد.', true); if (f.p1.value !== f.p2.value) return toast('تکرار رمز یکسان نیست.', true);
+    const code = genCode(); S.settings.auth = await mkAuth(S.settings.auth.user, f.p1.value, undefined, undefined, code, S.settings.auth); await save();
+    showCode(code, () => { authClose(); toast('رمز جدید فعال شد.'); render(); });
+  };
+}
+// ask for the current password before sensitive account changes
+function askPass(then) {
+  const sh = sheet('رمز فعلی', '<form id="pf">' + pwField('p', 'رمز فعلی را وارد کنید') + '<button class="btn blue" type="submit">تأیید</button></form>');
+  sh.q('#pf').onsubmit = async e => { e.preventDefault(); const au = S.settings.auth; if (await hashPin(e.target.p.value, au.salt) !== au.hash) return toast('رمز اشتباه است.', true); sh.close(); then(); };
+}
+function changePass() {
+  askPass(() => { const sh = sheet('تغییر رمز', '<form id="pf">' + pwField('p1', 'رمز جدید (حداقل ۶ نویسه)') + pwField('p2', 'تکرار رمز') + '<button class="btn blue" type="submit">ذخیره</button></form>');
+    sh.q('#pf').onsubmit = async e => { e.preventDefault(); const f = e.target; if (f.p1.value.length < 6) return toast('رمز حداقل ۶ نویسه باشد.', true); if (f.p1.value !== f.p2.value) return toast('تکرار رمز یکسان نیست.', true); S.settings.auth = await mkAuth(S.settings.auth.user, f.p1.value, undefined, undefined, null, S.settings.auth); await save(); sh.close(); toast('رمز تغییر کرد.'); }; });
+}
+function newCode() {
+  askPass(async () => { const code = genCode(); S.settings.auth = await mkAuth(S.settings.auth.user, null, undefined, undefined, code, S.settings.auth); await save(); showCode(code, () => { authClose(); toast('کد جدید فعال شد؛ کد قبلی باطل شد.'); }); });
+}
+
 async function boot() {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
   await loadState(); render(); $('#splash').remove();
-  if (S.settings.pinHash) showLock();
-  let hiddenAt = 0; document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (S.settings.pinHash && hiddenAt && Date.now() - hiddenAt > 60e3 && !lockedNow) showLock(); });
+  authGate();
+  let hiddenAt = 0; document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > 60e3 && !lockedNow) authGate(true); });
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isNative()) navigator.serviceWorker.register('sw.js').catch(() => { });
 }
 window.addEventListener('DOMContentLoaded', boot);

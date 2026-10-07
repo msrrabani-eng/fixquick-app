@@ -22,7 +22,7 @@ function save() {
 }
 async function loadState() {
   let raw = null; try { raw = await kvGet('state'); } catch (e) { /* ignore */ }
-  if (raw) { try { const o = JSON.parse(raw); const base = Core.emptyState(); S = Object.assign(base, o); S.settings = Object.assign(base.settings, o.settings || {}); return; } catch (e) { /* fall through to prev */ } }
+  if (raw) { try { const o = JSON.parse(raw); const base = Core.emptyState(); S = Object.assign(base, o); S.settings = Object.assign(base.settings, o.settings || {}); applyAppearance(S.settings); return; } catch (e) { /* fall through to prev */ } }
   try { const prev = await kvGet('state_prev'); if (prev) { S = Object.assign(Core.emptyState(), JSON.parse(prev)); toast('اطلاعات از نسخه پشتیبان خودکار بازیابی شد.'); } } catch (e) { /* new */ }
 }
 
@@ -167,5 +167,18 @@ const stamp = () => Core.isoToJalali(Core.todayISO()).replace(/\//g, '');
 
 /* ── result handler ── */
 async function done(r, okMsg) { if (!r.ok) { toast(r.error, true); return false; } await save(); if (okMsg) toast(okMsg); render(); return true; }
+/* ── appearance (theme / accent / font size) ── */
+const ACCENTS = { blue: ['#2563eb', '#1d4ed8', 'آبی'], green: ['#16a34a', '#15803d', 'سبز'], purple: ['#7c3aed', '#6d28d9', 'بنفش'], orange: ['#ea580c', '#c2410c', 'نارنجی'], red: ['#dc2626', '#b91c1c', 'قرمز'], teal: ['#0d9488', '#0f766e', 'فیروزه‌ای'] };
+const FS_MIN = 0.8, FS_MAX = 1.5;
+function applyAppearance(s) {
+  s = s || {}; const r = document.documentElement, th = s.theme === 'light' || s.theme === 'dark' ? s.theme : 'auto';
+  if (th === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', th);
+  const a = ACCENTS[s.accent] || ACCENTS.blue; r.style.setProperty('--blue', a[0]); r.style.setProperty('--blue2', a[1]);
+  const fs = Math.min(FS_MAX, Math.max(FS_MIN, Number(s.fontScale) || 1)); r.style.setProperty('--fs', String(fs));
+  const dark = th === 'dark' || (th === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme:dark)').matches);
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#0a0f1a' : '#111827';
+  try { localStorage.setItem('fq_look', JSON.stringify({ theme: th, accent: s.accent || 'blue', fontScale: fs })); } catch (e) { /* ignore */ }
+}
+try { applyAppearance(JSON.parse(localStorage.getItem('fq_look') || '{}')); } catch (e) { /* ignore */ }
 function sign(b) { return b > 0 ? 'طلب من' : b < 0 ? 'بدهی من' : 'تسویه'; }
 function bal(b) { return '<span class="' + (b > 0 ? 'debit' : b < 0 ? 'credit' : 'zero') + '">' + fmt(Math.abs(b)) + '</span>'; }

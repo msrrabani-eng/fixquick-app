@@ -50,6 +50,19 @@ jobs:
         run: |
           mkdir -p ~/.android
           cp android-signing/debug.keystore ~/.android/debug.keystore
+          python3 - <<'PY'
+          import re, os
+          f = 'android/app/build.gradle'
+          g = open(f).read()
+          ks = os.path.abspath('android-signing/debug.keystore')
+          block = ('    signingConfigs {\n        fixq {\n            storeFile file("' + ks + '")\n'
+                   '            storePassword "android"\n            keyAlias "androiddebugkey"\n            keyPassword "android"\n        }\n    }\n')
+          g, n1 = re.subn(r'^android \{\n', lambda m: m.group(0) + block, g, count=1, flags=re.M)
+          g, n2 = re.subn(r'^(\s*)buildTypes \{\n', lambda m: m.group(0) + m.group(1) + '    debug {\n' + m.group(1) + '        signingConfig signingConfigs.fixq\n' + m.group(1) + '    }\n', g, count=1, flags=re.M)
+          assert n1 == 1 and n2 == 1, (n1, n2)
+          open(f, 'w').write(g)
+          PY
+          grep -n -A6 "signingConfigs" android/app/build.gradle
 
       - name: Build APK
         working-directory: android
@@ -59,6 +72,12 @@ jobs:
 
       - name: Collect APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk FixQuick-Accounting.apk
+
+      - name: Check the APK is signed with the fixed key
+        run: |
+          AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -1)
+          $AS verify --print-certs FixQuick-Accounting.apk | tee certs.txt
+          grep -qi "dd67504f0c9fc6bcb4e1427050a62f0fa0ab3698edf228d6a7b6dd141f85139c" certs.txt || { echo "WRONG SIGNING KEY"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:

@@ -35,7 +35,7 @@ function pageHome() {
 }
 function invNotes(i) { return [i.note].concat((i.items || []).map(l => l.note)).filter(Boolean); }
 function invRow(i, q) {
-  const hit = q ? (invNotes(i).find(x => Core.toEn(x).toLowerCase().includes(q)) || '') : '';
+  const hit = q ? (invNotes(i).find(x => matchQ(x, q)) || '') : '';
   const info = Core.invoiceInfo(S, i); const badge = info.remaining === 0 ? '<span class="bd ok">تسویه</span>' : info.paid > 0 ? '<span class="bd mid">مانده ' + fmt(info.remaining) + '</span>' : '<span class="bd no">تسویه نشده</span>';
   return '<button class="row" data-act="go" data-h="#/inv/' + i.id + '"><span><b>' + esc(personName(i.personId)) + '</b><small>' + Core.TYPE_FA[i.type] + ' · شماره ' + fa(i.no) + ' · ' + fmtDate(i.date) + '</small>' + (hit ? '<small class="hit">🔎 ' + esc(hit) + '</small>' : '') + '</span><span class="end"><em>' + fmt(info.total) + '</em>' + badge + '</span></button>';
 }
@@ -44,7 +44,7 @@ function invRow(i, q) {
 function pagePeople() {
   const b = Core.balances(S), q = Core.toEn(UI.peopleQ).trim().toLowerCase();
   let list = S.people.filter(p => UI.showArchived ? p.archived : !p.archived);
-  if (q) list = list.filter(p => (p.name + ' ' + p.phone).toLowerCase().includes(q));
+  if (q) list = list.filter(p => matchQ(p.name + ' ' + p.phone + ' ' + (p.note || ''), q));
   if (UI.peopleF === 'debit') list = list.filter(p => b[p.id] > 0); else if (UI.peopleF === 'credit') list = list.filter(p => b[p.id] < 0); else if (UI.peopleF === 'zero') list = list.filter(p => !b[p.id]);
   list.sort((x, y) => UI.peopleF === 'debit' ? b[y.id] - b[x.id] : UI.peopleF === 'credit' ? b[x.id] - b[y.id] : x.name.localeCompare(y.name, 'fa'));
   const rp = Core.receivablePayable(S);
@@ -141,7 +141,7 @@ function pageInvoices() {
   const q = Core.toEn(UI.invQ).trim().toLowerCase();
   let list = S.invoices.slice().sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);
   if (UI.invF !== 'all') list = list.filter(i => i.type === UI.invF);
-  if (q) list = list.filter(i => Core.toEn(personName(i.personId) + ' ' + i.no + ' ' + invNotes(i).join(' ') + ' ' + i.items.map(l => prodName(l.productId)).join(' ')).toLowerCase().includes(q));
+  if (q) list = list.filter(i => matchQ(personName(i.personId) + ' ' + i.no + ' ' + invNotes(i).join(' ') + ' ' + i.items.map(l => prodName(l.productId)).join(' '), q));
   const sum = list.reduce((s, i) => s + Core.invoiceTotals(i).total, 0);
   let h = '<input class="inp" id="inv-q" placeholder="جستجوی نام، شماره فاکتور یا سریال…" value="' + esc(UI.invQ) + '" autocomplete="off">' + chips('invF', UI.invF, [['all', 'همه'], ['sale', 'فروش'], ['purchase', 'خرید'], ['sale_return', 'برگشت فروش'], ['purchase_return', 'برگشت خرید']]);
   h += list.length ? '<div class="card flush">' + list.map(i => invRow(i, q)).join('') + '</div><p class="hint center">' + fa(list.length) + ' فاکتور · جمع: ' + fmt(sum) + ' ریال</p>' : empty('🧾', 'فاکتوری ثبت نشده است.', '<div class="row2"><button class="btn green" data-act="newInv" data-t="sale">فاکتور فروش</button><button class="btn blue" data-act="newInv" data-t="purchase">فاکتور خرید</button></div>');
@@ -210,7 +210,7 @@ async function submitInvoice(e) {
 /* ─────────── PRODUCTS ─────────── */
 function pageProducts() {
   const q = Core.toEn(UI.prodQ).trim().toLowerCase(); let st = Core.productStats(S);
-  if (q) st = st.filter(x => (x.product.name + ' ' + x.product.sku).toLowerCase().includes(q)); st.sort((a, b) => a.product.name.localeCompare(b.product.name, 'fa'));
+  if (q) st = st.filter(x => matchQ(x.product.name + ' ' + x.product.sku, q)); st.sort((a, b) => a.product.name.localeCompare(b.product.name, 'fa'));
   const all = Core.productStats(S);
   let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length)) + stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', 'ریال') + '</div><input class="inp" id="prod-q" placeholder="جستجوی کالا…" value="' + esc(UI.prodQ) + '" autocomplete="off">';
   h += st.length ? '<div class="card flush">' + st.map(x => '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>').join('') + '</div>' : empty('📦', 'کالایی ثبت نشده است.', '<button class="btn blue" data-act="addProduct">+ افزودن کالا</button>');

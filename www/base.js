@@ -85,12 +85,15 @@ function confirmBox(msg, label, danger) {
 function alertBox(title, html) { const sh = sheet(title, '<div class="msg">' + html + '</div><button class="btn blue" data-close style="margin-top:12px">باشه</button>'); return sh; }
 
 /* ── generic searchable picker ── */
+/* search: Persian/English digits, Arabic ي/ك, half-space and word order don't matter */
+function normQ(s) { return Core.toEn(String(s == null ? '' : s)).replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[ۀة]/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/[\u200c\u200f\u200e_\-]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim(); }
+function matchQ(text, q) { const t = normQ(text), w = normQ(q).split(' ').filter(Boolean); return w.every(x => t.includes(x)); }
 function pickList(title, items, onPick, o) {
   o = o || {};
   const sh = sheet(title, '<input class="inp" id="pk-s" placeholder="جستجو…" autocomplete="off">' + (o.addNew ? '<button class="btn ghost" id="pk-new" type="button">+ ' + esc(o.addNew) + '</button>' : '') + '<div class="list" id="pk-l"></div>', { tall: true });
   const draw = () => {
-    const q = Core.toEn(sh.q('#pk-s').value).trim().toLowerCase();
-    const f = items.filter(i => !q || (i.label + ' ' + (i.sub || '')).toLowerCase().includes(q));
+    const q = sh.q('#pk-s').value.trim();
+    const f = items.filter(i => !q || matchQ(i.label + ' ' + (i.sub || ''), q));
     sh.q('#pk-l').innerHTML = f.length ? f.map(i => '<button type="button" class="item" data-v="' + esc(i.value) + '"><span>' + esc(i.label) + (i.sub ? '<small>' + esc(i.sub) + '</small>' : '') + '</span>' + (i.right ? '<em class="' + (i.cls || '') + '">' + esc(i.right) + '</em>' : '') + '</button>').join('') : '<div class="empty">موردی پیدا نشد</div>';
   };
   draw(); sh.q('#pk-s').addEventListener('input', draw);

@@ -137,7 +137,7 @@ function pageInvoice(id) {
   h += '<div class="card flush"><div class="lh it"><span>کالا</span><span>تعداد</span><span>قیمت</span><span>جمع</span></div>' + info.lines.map(l => '<div class="lr it"><span><b>' + esc(prodName(l.productId)) + '</b>' + (l.note ? '<small class="sn-t">🔖 ' + esc(l.note) + '</small>' : '') + '</span><span>' + Core.fmtQty(l.qty) + ' ' + esc(unitOf(l.productId)) + '</span><span>' + fmt(l.price) + '</span><span>' + fmt(l.gross) + '</span></div>').join('') + '</div>';
   h += '<div class="card"><div class="kv"><span>جمع اقلام</span><b>' + fmt(info.sub) + '</b>' + (info.discount ? '<span>تخفیف</span><b>' + fmt(info.discount) + '</b>' : '') + '<span>جمع نهایی</span><b class="big">' + fmt(info.total) + ' ریال</b><span>' + (dirTxt === 'دریافت' ? 'دریافت‌شده' : 'پرداخت‌شده') + '</span><b>' + fmt(info.paid) + '</b><span>مانده این فاکتور</span><b class="' + (info.remaining ? 'debit' : 'credit') + '">' + fmt(info.remaining) + '</b></div></div>';
   if (pays.length) h += '<div class="card"><div class="ch">پرداخت‌ها</div>' + pays.map(t => '<button class="row" data-act="txOpen" data-id="' + t.id + '"><span><b>' + fmtDate(t.date) + '</b><small>' + Core.METHODS[t.method] + '</small></span><em>' + fmt(t.amount) + '</em></button>').join('') + '</div>';
-  h += '<div class="toolbar">' + (info.remaining > 0 ? '<button class="btn blue sm" data-act="payInv" data-id="' + i.id + '">' + (dirTxt === 'دریافت' ? '⬇️ ثبت دریافت' : '⬆️ ثبت پرداخت') + '</button>' : '') + '<button class="btn ghost sm" data-act="shareInv" data-id="' + i.id + '">📤 ارسال متن</button>' + (!isNative() ? '<button class="btn ghost sm" onclick="window.print()">🖨 چاپ / PDF</button>' : '') + '<button class="btn ghost sm red" data-act="delInv" data-id="' + i.id + '">🗑 حذف</button></div>';
+  h += '<div class="toolbar">' + (info.remaining > 0 ? '<button class="btn blue sm" data-act="payInv" data-id="' + i.id + '">' + (dirTxt === 'دریافت' ? '⬇️ ثبت دریافت' : '⬆️ ثبت پرداخت') + '</button>' : '') + '<button class="btn ghost sm" data-act="shareInv" data-id="' + i.id + '">📤 ارسال متن</button>' + '<button class="btn ghost sm" data-act="printInv" data-id="' + i.id + '">🖨 چاپ فاکتور (A5)</button>' + '<button class="btn ghost sm red" data-act="delInv" data-id="' + i.id + '">🗑 حذف</button></div>';
   return { title: Core.TYPE_FA[i.type] + ' ' + fa(i.no), html: h, back: '#/invoices' };
 }
 function invoiceText(i) {
@@ -195,12 +195,19 @@ function pageProducts() {
   const all = Core.productStats(S);
   let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length)) + stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', 'ریال') + '</div><input class="inp" id="prod-q" placeholder="جستجوی کالا…" value="' + esc(UI.prodQ) + '" autocomplete="off">';
   h += st.length ? '<div class="card flush">' + st.map(x => '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>').join('') + '</div>' : empty('📦', 'کالایی ثبت نشده است.', '<button class="btn blue" data-act="addProduct">+ افزودن کالا</button>');
+  h += '<button class="lnk center" data-act="bulkProducts">📝 افزودن چند کالا فقط با نام</button>';
   return { title: 'انبار و کالاها', html: h, fab: ['addProduct', '+'] };
 }
-function productForm(p) {
-  const sh = sheet(p ? 'ویرایش کالا' : 'کالای جدید', '<form id="gf"><label class="fld"><span>نام کالا</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><div class="row2"><label class="fld"><span>کد (اختیاری)</span><input class="inp ltr" name="sku" value="' + esc(p ? p.sku : '') + '"></label><label class="fld"><span>واحد</span><input class="inp" name="unit" value="' + esc(p ? p.unit : 'عدد') + '"></label></div>' + moneyField('salePrice', p ? p.salePrice : 0, 'قیمت فروش پیش‌فرض') + moneyField('buyPrice', p ? p.buyPrice : 0, 'قیمت خرید پیش‌فرض') + (p ? '' : '<label class="fld"><span>موجودی اولیه (اختیاری)</span><input class="inp ltr" name="openQty" inputmode="decimal" placeholder="۰" autocomplete="off"></label><p class="hint">اگر همین الان از این کالا دارید، تعدادش را بنویسید. با «قیمت خرید» بالا در انبار ثبت می‌شود و در سود و زیان حساب نمی‌شود.</p>') + '<label class="fld"><span>حداقل موجودی (هشدار)</span><input class="inp ltr" name="minStock" inputmode="decimal" value="' + fa(p ? p.minStock : 0) + '"></label><button class="btn blue" type="submit">ذخیره</button></form>');
-  const f = sh.q('#gf'); f.onsubmit = async e => { e.preventDefault(); const d = { name: f.name.value, sku: f.sku.value, unit: f.unit.value, salePrice: Core.parseMoney(f.salePrice.value || '0'), buyPrice: Core.parseMoney(f.buyPrice.value || '0'), minStock: Core.parseNum(f.minStock.value || '0') }; if (isNaN(d.salePrice) || isNaN(d.buyPrice) || isNaN(d.minStock)) return toast('مقادیر عددی نامعتبر است.', true); const oq = (!p && f.openQty && f.openQty.value.trim() !== '') ? Core.parseNum(f.openQty.value) : 0; if (isNaN(oq) || oq < 0) return toast('موجودی اولیه نامعتبر است.', true); if (oq > 0 && !(d.buyPrice > 0)) return toast('برای موجودی اولیه، قیمت خرید را هم وارد کنید.', true); let r = p ? Core.editProduct(S, p.id, d) : Core.addProduct(S, d); if (r.ok && !p && oq > 0) { const a = Core.addAdjust(S, { productId: r.product.id, qty: oq, cost: d.buyPrice, date: today(), note: 'موجودی اولیه', opening: true }); if (!a.ok) { Core.deleteProduct(S, r.product.id); r = a; } } if (await done(r, 'ذخیره شد.')) sh.close(); };
+function productForm(p, o) {
+  o = o || {};
+  const sh = sheet(p ? 'ویرایش کالا' : o.inInvoice ? 'کالای جدید (به انبار هم اضافه می‌شود)' : 'کالای جدید', '<form id="gf"><label class="fld"><span>نام کالا</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><div class="row2"><label class="fld"><span>کد (اختیاری)</span><input class="inp ltr" name="sku" value="' + esc(p ? p.sku : '') + '"></label><label class="fld"><span>واحد</span><input class="inp" name="unit" value="' + esc(p ? p.unit : 'عدد') + '"></label></div>' + moneyField('salePrice', p ? p.salePrice : 0, 'قیمت فروش پیش‌فرض') + moneyField('buyPrice', p ? p.buyPrice : 0, 'قیمت خرید پیش‌فرض') + (p || o.inInvoice ? '' : '<label class="fld"><span>موجودی اولیه (اختیاری)</span><input class="inp ltr" name="openQty" inputmode="decimal" placeholder="۰" autocomplete="off"></label><p class="hint">اگر همین الان از این کالا دارید، تعدادش را بنویسید. با «قیمت خرید» بالا در انبار ثبت می‌شود و در سود و زیان حساب نمی‌شود. اگر فقط می‌خواهید نام کالا در فهرست باشد، فقط «نام کالا» را بنویسید و بقیه را خالی بگذارید.</p>') + '<label class="fld"><span>حداقل موجودی (هشدار)</span><input class="inp ltr" name="minStock" inputmode="decimal" value="' + fa(p ? p.minStock : 0) + '"></label><button class="btn blue" type="submit">ذخیره</button></form>');
+  const f = sh.q('#gf'); f.onsubmit = async e => { e.preventDefault(); const d = { name: f.name.value, sku: f.sku.value, unit: f.unit.value, salePrice: Core.parseMoney(f.salePrice.value || '0'), buyPrice: Core.parseMoney(f.buyPrice.value || '0'), minStock: Core.parseNum(f.minStock.value || '0') }; if (isNaN(d.salePrice) || isNaN(d.buyPrice) || isNaN(d.minStock)) return toast('مقادیر عددی نامعتبر است.', true); const oq = (!p && f.openQty && f.openQty.value.trim() !== '') ? Core.parseNum(f.openQty.value) : 0; if (isNaN(oq) || oq < 0) return toast('موجودی اولیه نامعتبر است.', true); if (oq > 0 && !(d.buyPrice > 0)) return toast('برای موجودی اولیه، قیمت خرید را هم وارد کنید.', true); let r = p ? Core.editProduct(S, p.id, d) : Core.addProduct(S, d); if (o.onSaved && r.ok && !p) { await save(); sh.close(); toast('کالا به انبار اضافه شد.'); o.onSaved(r.product); return; } if (r.ok && !p && oq > 0) { const a = Core.addAdjust(S, { productId: r.product.id, qty: oq, cost: d.buyPrice, date: today(), note: 'موجودی اولیه', opening: true }); if (!a.ok) { Core.deleteProduct(S, r.product.id); r = a; } } if (await done(r, 'ذخیره شد.')) sh.close(); };
   autoFocus(() => f.name);
+}
+function bulkProducts() {
+  const sh = sheet('افزودن چند کالا با نام', '<form id="bf"><p class="hint">هر نام کالا را در یک خط بنویسید. فقط نام ثبت می‌شود؛ قیمت و موجودی را بعداً (مثلاً با فاکتور خرید) وارد می‌کنید. نام‌های تکراری نادیده گرفته می‌شوند.</p><textarea class="inp" name="t" rows="8" style="height:auto;padding:10px" placeholder="گوشی سامسونگ A15&#10;کابل شارژ تایپ‌سی&#10;قاب ژله‌ای"></textarea><button class="btn blue" type="submit">افزودن به انبار</button></form>');
+  sh.q('#bf').onsubmit = async e => { e.preventDefault(); const names = Array.from(new Set(e.target.t.value.split(/\n/).map(s => s.trim()).filter(Boolean))); if (!names.length) return toast('نامی نوشته نشده است.', true); let add = 0, dup = 0; for (const n of names) { const r = Core.addProduct(S, { name: n }); if (r.ok) add++; else dup++; } if (add) await save(); sh.close(); toast(fa(add) + ' کالا اضافه شد' + (dup ? ' (' + fa(dup) + ' مورد تکراری بود)' : '') + '.', !add); render(); };
+  autoFocus(() => sh.q('[name=t]'));
 }
 function prodOpen(id) {
   const x = Core.productStats(S).find(s => s.product.id === id); if (!x) return; const p = x.product;
@@ -271,7 +278,16 @@ function pageReports() {
 function pageMore() {
   const item = (ic, t, h, sub) => '<button class="row" data-act="go" data-h="' + h + '"><span><b>' + ic + ' ' + t + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><em>‹</em></button>';
   const open = S.cheques.filter(c => !c.done).length;
-  return { title: 'بیشتر', html: '<div class="card flush">' + item('📊', 'گزارش‌ها و سود و زیان', '#/reports') + item('📆', 'چک و اقساط', '#/cheques', open ? fa(open) + ' مورد در انتظار' : '') + item('💸', 'هزینه‌ها', '#/expenses') + item('🧾', 'همه فاکتورها', '#/invoices') + '<button class="row" data-act="transfer"><span><b>↔️ حواله بین اشخاص</b></span><em>‹</em></button>' + item('⚙️', 'تنظیمات و پشتیبان', '#/settings') + '</div><p class="hint center">حسابداری فیکس کوییک · نسخه ۱.۰</p>' };
+  return { title: 'بیشتر', html: '<div class="card flush">' + item('📊', 'گزارش‌ها و سود و زیان', '#/reports') + item('📆', 'چک و اقساط', '#/cheques', open ? fa(open) + ' مورد در انتظار' : '') + item('💸', 'هزینه‌ها', '#/expenses') + item('🧾', 'همه فاکتورها', '#/invoices') + '<button class="row" data-act="transfer"><span><b>↔️ حواله بین اشخاص</b></span><em>‹</em></button>' + item('⚙️', 'تنظیمات و پشتیبان', '#/settings') + '</div>' + aboutCard() + '<p class="hint center">حسابداری فیکس کوییک · نسخه ۱.۴</p>' };
+}
+function aboutCard() {
+  const lnk = (ic, t, s, u) => '<a class="ab-row" href="' + u + '" target="_blank" rel="noopener"><i>' + ic + '</i><span><b>' + t + '</b><small>' + s + '</small></span><em>‹</em></a>';
+  return '<div class="card about"><div class="ab-h"><img src="logo.png" alt=""><div><b>پشتیبانی فیکس کوییک</b><small>سؤال یا مشکلی داشتید؟ در واتساپ پیام بدهید؛ در خدمتیم.</small></div></div>' +
+    lnk('💬', 'واتساپ پشتیبانی', Core.toFa('09999917199'), 'https://wa.me/989999917199') +
+    lnk('📞', 'تماس تلفنی', Core.toFa('09999917199'), 'tel:09999917199') +
+    lnk('🌐', 'وب‌سایت', 'fixq.ir', 'https://fixq.ir') +
+    lnk('📸', 'اینستاگرام', '@fixq.ir', 'https://instagram.com/fixq.ir') +
+    '<div class="ab-f">با مدیریت <b>محمد صادق ربانی</b><small>طراح و صاحب امتیاز برنامه</small></div></div>';
 }
 function pageSettings() {
   const days = S.settings.lastBackup ? Core.diffDays(S.settings.lastBackup, today()) : null;
@@ -280,7 +296,7 @@ function pageSettings() {
   h += '<div class="card"><div class="ch">🎨 ظاهر برنامه</div><div class="seg">' + [['light', '☀️ روز'], ['dark', '🌙 شب'], ['auto', '📱 خودکار']].map(x => '<button type="button" class="' + (th === x[0] ? 'on' : '') + '" data-act="setTheme" data-v="' + x[0] + '">' + x[1] + '</button>').join('') + '</div><div class="sw">' + Object.keys(ACCENTS).map(k => '<button type="button" title="' + ACCENTS[k][2] + '" class="' + (ac === k ? 'on' : '') + '" style="background:' + ACCENTS[k][0] + '" data-act="setAccent" data-v="' + k + '"></button>').join('') + '</div><div class="fsr"><button type="button" data-act="fontStep" data-v="-1">A−</button><span class="v">اندازه نوشته: ' + fa(Math.round(fs * 100)) + '٪</span><button type="button" data-act="fontStep" data-v="1">A+</button></div><button type="button" class="lnk center" data-act="fontStep" data-v="0">بازگشت به اندازه عادی</button></div>';
   h += '<div class="card"><div class="ch">💾 پشتیبان‌گیری</div><p class="hint">' + (days === null ? 'هنوز پشتیبان نگرفته‌اید.' : 'آخرین پشتیبان: ' + fmtDate(S.settings.lastBackup) + ' (' + fa(days) + ' روز پیش)') + '</p><p class="hint">اطلاعات فقط روی همین گوشی است. با حذف برنامه یا پاک‌کردن اطلاعات مرورگر از بین می‌رود؛ پس مرتب پشتیبان بگیرید و فایل را برای خودتان (مثلاً تلگرام/Drive) بفرستید.</p><div class="row2"><button class="btn green" data-act="backup">دریافت پشتیبان</button><button class="btn ghost" data-act="restore">بازیابی از فایل</button></div><input type="file" id="restore-file" accept=".json,application/json" hidden></div>';
   const au = S.settings.auth || {};
-  h += '<div class="card"><div class="ch">👤 حساب کاربری</div><p class="hint">نام کاربری: <b>' + esc(au.user || '') + '</b></p><div class="row2"><button class="btn ghost" data-act="changePass">تغییر رمز</button><button class="btn ghost" data-act="newCode">کد بازیابی جدید</button></div><button class="btn ghost" data-act="logout">🔒 خروج و قفل برنامه</button></div>';
+  h += '<div class="card"><div class="ch">👤 حساب کاربری</div><p class="hint">نام کاربری: <b>' + esc(au.user || '') + '</b></p><div class="row2"><button class="btn ghost" data-act="changePass">تغییر رمز</button><button class="btn ghost" data-act="newCode">کد بازیابی جدید</button></div><button class="btn ghost" data-act="logout">🔒 خروج و قفل برنامه</button>' + (isNative() ? '<button class="btn ghost" data-act="toggleBio">' + (S.settings.bio ? '👆 اثر انگشت: فعال (غیرفعال کنم)' : '👆 فعال‌سازی ورود با اثر انگشت') + '</button>' : '') + '</div>';
   h += '<div class="card"><div class="ch">🔎 بررسی سلامت اطلاعات</div><p class="hint">صحت ارتباط تراکنش‌ها، فاکتورها و موجودی انبار را بررسی می‌کند.</p><button class="btn ghost" data-act="audit">اجرای بررسی</button></div>';
   h += '<div class="card"><div class="ch">⚠️ حذف همه اطلاعات</div><button class="btn red" data-act="wipe">پاک‌کردن کامل برنامه</button></div><p class="hint center">تعداد: ' + fa(S.people.length) + ' شخص · ' + fa(S.products.length) + ' کالا · ' + fa(S.invoices.length) + ' فاکتور · ' + fa(S.tx.length) + ' تراکنش</p>';
   return { title: 'تنظیمات', html: h, back: '#/more', mount: () => { $('#setf').onsubmit = async e => { e.preventDefault(); const f = e.target, oc = f.openingCash.value.trim() === '' ? 0 : Core.parseMoney(f.openingCash.value); if (isNaN(oc)) return toast('مبلغ نامعتبر است.', true); S.settings.business = f.business.value.trim(); S.settings.openingCash = oc; await save(); toast('ذخیره شد.'); render(); }; $('#restore-file').onchange = restoreFile; } };
@@ -331,7 +347,13 @@ const actions = {
   csvStmt: async d => { const L = Core.ledger(S, +d.p, UI.stmtFrom, UI.stmtTo); await exportFile('statement-' + stamp() + '.csv', csvFile([['تاریخ', 'شرح', 'اضافه', 'کم', 'مانده']].concat(L.rows.map(r => [Core.isoToJalali(r.tx.date), r.tx.desc, r.debit || '', r.credit || '', r.balance]))), 'text/csv'); },
   newInv: d => { const q = d.p ? '?p=' + d.p : ''; const h = '#/new/' + (d.t || 'sale') + q; goHash(h); },
   pickInvPerson: () => pickList('انتخاب شخص', personItems(), v => { $('#nf [name=pid]').value = v; $('#nf-p').textContent = personName(+v); }, { addNew: 'شخص جدید', onAdd: () => personFormInline() }),
-  pickProd: (d, el) => { const type = $('#nf [name=type]').value; pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => { const row = el.closest('.it-row'), p = Core.byId(S.products, +v); row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); } const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice(); }, { addNew: S.products.length ? null : 'کالای جدید', onAdd: () => productForm() }); },
+  pickProd: (d, el) => {
+    const type = $('#nf [name=type]').value, row = el.closest('.it-row');
+    const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); } const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice(); };
+    pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', onAdd: () => productForm(null, { inInvoice: true, onSaved: fill }) });
+  },
+  bulkProducts: () => bulkProducts(),
+  printInv: d => printInvoice(+d.id),
   addRow: () => { addRow(); calcInvoice(); }, rmRow: (d, el) => { if ($$('.it-row').length > 1) { el.closest('.it-row').remove(); calcInvoice(); } },
   payFull: () => { const f = $('#nf'); f.paid.value = fa(Core.group(+f.dataset.total || 0)); calcInvoice(); },
   payInv: d => { const i = Core.byId(S.invoices, +d.id), info = Core.invoiceInfo(S, i); const isRec = i.type === 'sale' || i.type === 'purchase_return'; txForm(isRec ? 'receipt' : 'payment', i.personId); setTimeout(() => { const f = $('#tf'); f.amount.value = fa(Core.group(info.remaining)); f.desc.value = 'تسویه فاکتور ' + fa(i.no); }, 30); },
@@ -347,7 +369,7 @@ const actions = {
   csvPeople: async () => { const b = Core.balances(S); await exportFile('balances-' + stamp() + '.csv', csvFile([['نام', 'تلفن', 'مانده', 'وضعیت']].concat(S.people.map(p => [p.name, p.phone, Math.abs(b[p.id]), sign(b[p.id])]))), 'text/csv'); },
   csvInvoices: async () => { await exportFile('invoices-' + stamp() + '.csv', csvFile([['شماره', 'نوع', 'شخص', 'تاریخ', 'جمع', 'تخفیف', 'پرداخت‌شده', 'مانده', 'توضیحات / سریال']].concat(S.invoices.map(i => { const n = Core.invoiceInfo(S, i); return [i.no, Core.TYPE_FA[i.type], personName(i.personId), Core.isoToJalali(i.date), n.total, n.discount, n.paid, n.remaining, invNotes(i).join(' | ')]; }))), 'text/csv'); },
   csvLedger: async () => { await exportFile('ledger-' + stamp() + '.csv', csvFile([['تاریخ', 'شخص', 'شرح', 'اضافه', 'کم']].concat(S.tx.slice().sort((a, b) => a.date < b.date ? -1 : 1).map(t => [Core.isoToJalali(t.date), personName(t.personId), t.desc, t.kind === 'debit' ? t.amount : '', t.kind === 'credit' ? t.amount : '']))), 'text/csv'); },
-  changePass: () => changePass(), newCode: () => newCode(), logout: () => authGate(),
+  toggleBio: () => toggleBio(), changePass: () => changePass(), newCode: () => newCode(), logout: () => authGate(),
   backup: () => doBackup(), restore: () => $('#restore-file').click(), setPin: () => setPin(),
   setTheme: async d => { S.settings.theme = d.v; applyAppearance(S.settings); await save(); render(); },
   setAccent: async d => { S.settings.accent = d.v; applyAppearance(S.settings); await save(); render(); },
@@ -387,6 +409,30 @@ let lastFull = '';
 window.addEventListener('hashchange', () => { if ((location.hash || '#/home') !== lastFull) render(); }); // ignore duplicate events for the same address (would wipe an open form)
 
 /* ─────────── account: register / login / recovery ─────────── */
+/* ── fingerprint (native biometric prompt, Android) ── */
+let bioReady = false, bioBusy = false;
+const bioPlugin = () => { const P = window.Capacitor && window.Capacitor.Plugins; return isNative() && P ? (P.BiometricAuthNative || P.BiometricAuth || null) : null; };
+async function bioAvail() { const b = bioPlugin(); if (!b) return false; try { const r = await b.checkBiometry(); return !!(r && r.isAvailable); } catch (e) { return false; } }
+async function bioCheck() { bioReady = !!(S.settings.bio && await bioAvail()); }
+async function bioAsk(reason) {
+  const b = bioPlugin(); if (!b) return false;
+  try { await b.internalAuthenticate({ reason: reason || 'برای ورود به برنامه اثر انگشت خود را بگذارید', cancelTitle: 'استفاده از رمز', allowDeviceCredential: false, androidTitle: 'فیکس کوییک', androidSubtitle: 'ورود با اثر انگشت', androidConfirmationRequired: false }); return true; } catch (e) { return false; }
+}
+async function bioLogin() {
+  if (bioBusy || !lockedNow || !$('#bio')) return; bioBusy = true;
+  try { if (await bioAsk()) { authClose(); render(); } } finally { bioBusy = false; }
+}
+async function offerBio() {
+  if (S.settings.bio || S.settings.bioAsked || !(await bioAvail())) return;
+  S.settings.bioAsked = true; await save();
+  if (await confirmBox('از این به بعد با اثر انگشت وارد برنامه شوید و هر بار رمز نزنید؟', 'فعال‌سازی')) { if (await bioAsk('برای فعال‌سازی، اثر انگشت خود را بگذارید')) { S.settings.bio = true; await save(); toast('ورود با اثر انگشت فعال شد.'); render(); } else toast('فعال نشد. بعداً از تنظیمات می‌توانید فعال کنید.', true); }
+}
+async function toggleBio() {
+  if (S.settings.bio) { S.settings.bio = false; await save(); toast('ورود با اثر انگشت غیرفعال شد.'); render(); return; }
+  if (!(await bioAvail())) return toast('اثر انگشتی روی این گوشی فعال نیست. ابتدا در تنظیمات گوشی اثر انگشت اضافه کنید.', true);
+  if (await bioAsk('برای فعال‌سازی، اثر انگشت خود را بگذارید')) { S.settings.bio = true; await save(); toast('ورود با اثر انگشت فعال شد.'); render(); } else toast('تأیید نشد.', true);
+}
+
 let legacyOk = false, failN = 0, failUntil = 0;
 const SEC_QS = ['نام اولین مدرسه‌ی من چه بود؟', 'نام شهر تولد من چیست؟', 'نام بهترین دوست دوران کودکی من؟', 'مدل اولین گوشی من چه بود؟', 'نام حیوان خانگی (یا مورد علاقه) من؟'];
 const normAns = s => Core.toEn(String(s || '')).replace(/[\s‌\-]+/g, '').toLowerCase();
@@ -404,14 +450,14 @@ function authOverlay(html) {
   o.innerHTML = '<div class="auth-box"><img class="auth-logo" src="logo.png" alt="">' + html + '</div>'; return o;
 }
 function authClose() { const o = $('#auth'); if (o) o.remove(); lockedNow = false; }
-function pwField(name, label) { return '<label class="fld"><span>' + label + '</span><input class="inp ltr" type="password" name="' + name + '" autocomplete="off"></label>'; }
+function pwField(name, label, ac) { return '<label class="fld"><span>' + label + '</span><input class="inp ltr" type="password" name="' + name + '" id="pw-' + name + '" autocomplete="' + (ac || 'current-password') + '"></label>'; }
 function authGate(relock) {
   if (!S.settings.auth) { if (S.settings.pinHash && !legacyOk) { showLockLegacy(); return; } return authRegister(); }
-  lockedNow = true; authLogin();
+  lockedNow = true; bioCheck().then(() => { if (lockedNow) authLogin(); });
 }
 function authRegister() {
   lockedNow = true;
-  const o = authOverlay('<h2>ثبت‌نام</h2><p class="hint center">یک نام کاربری و رمز برای ورود به برنامه بسازید. اطلاعات فعلی شما حفظ می‌شود.</p><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" autocomplete="off" autocapitalize="none"></label>' + pwField('p1', 'رمز (حداقل ۶ نویسه)') + pwField('p2', 'تکرار رمز') + '<label class="fld"><span>سؤال امنیتی (برای بازیابی رمز)</span><select class="inp" name="q">' + SEC_QS.map(q => '<option>' + q + '</option>').join('') + '</select></label><label class="fld"><span>پاسخ</span><input class="inp" name="a" autocomplete="off"></label><button class="btn blue" type="submit">ثبت‌نام</button></form>');
+  const o = authOverlay('<h2>ثبت‌نام</h2><p class="hint center">یک نام کاربری و رمز برای ورود به برنامه بسازید. اطلاعات فعلی شما حفظ می‌شود.</p><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" id="fq-user" autocomplete="username" autocapitalize="none"></label>' + pwField('p1', 'رمز (حداقل ۶ نویسه)', 'new-password') + pwField('p2', 'تکرار رمز', 'new-password') + '<label class="fld"><span>سؤال امنیتی (برای بازیابی رمز)</span><select class="inp" name="q">' + SEC_QS.map(q => '<option>' + q + '</option>').join('') + '</select></label><label class="fld"><span>پاسخ</span><input class="inp" name="a" autocomplete="off"></label><button class="btn blue" type="submit">ثبت‌نام</button></form>');
   $('#af', o).onsubmit = async e => {
     e.preventDefault(); const f = e.target, u = f.u.value.trim(), p1 = f.p1.value, p2 = f.p2.value, a = f.a.value.trim();
     if (u.length < 3) return toast('نام کاربری حداقل ۳ نویسه باشد.', true);
@@ -419,7 +465,7 @@ function authRegister() {
     if (p1 !== p2) return toast('تکرار رمز یکسان نیست.', true);
     if (normAns(a).length < 2) return toast('پاسخ سؤال امنیتی را بنویسید.', true);
     const code = genCode(); S.settings.auth = await mkAuth(u, p1, f.q.value, a, code); delete S.settings.pinHash; delete S.settings.pinSalt; await save();
-    showCode(code, () => { authClose(); toast('خوش آمدید.'); render(); });
+    showCode(code, () => { authClose(); toast('خوش آمدید.'); render(); offerBio(); });
   };
 }
 function showCode(code, next) {
@@ -429,15 +475,16 @@ function showCode(code, next) {
 }
 function authLogin() {
   const au = S.settings.auth;
-  const o = authOverlay('<h2>ورود</h2><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" value="' + esc(au.user) + '" autocomplete="off" autocapitalize="none"></label>' + pwField('p', 'رمز') + '<button class="btn blue" type="submit">ورود</button></form><button class="lnk center" id="fg">رمز را فراموش کرده‌ام</button>');
+  const o = authOverlay('<h2>ورود</h2><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" id="fq-user" value="' + esc(au.user) + '" autocomplete="username" autocapitalize="none"></label>' + pwField('p', 'رمز') + '<button class="btn blue" type="submit">ورود</button></form>' + (bioReady ? '<button class="btn ghost" id="bio" type="button">👆 ورود با اثر انگشت</button>' : '') + '<button class="lnk center" id="fg">رمز را فراموش کرده‌ام</button>');
   $('#af', o).onsubmit = async e => {
     e.preventDefault(); const f = e.target;
     if (Date.now() < failUntil) return toast('چند بار اشتباه زدید؛ ' + fa(Math.ceil((failUntil - Date.now()) / 1000)) + ' ثانیه صبر کنید.', true);
     const ok = f.u.value.trim().toLowerCase() === au.user.toLowerCase() && await hashPin(f.p.value, au.salt) === au.hash;
-    if (ok) { failN = 0; authClose(); render(); return; }
+    if (ok) { failN = 0; authClose(); render(); offerBio(); return; }
     failN++; if (failN >= 5) { failUntil = Date.now() + Math.min(300, 15 * (failN - 4)) * 1000; } toast('نام کاربری یا رمز اشتباه است.', true); f.p.value = '';
   };
   $('#fg', o).onclick = authForgot;
+  if (bioReady) { $('#bio', o).onclick = bioLogin; setTimeout(bioLogin, 350); }
 }
 function authForgot() {
   const au = S.settings.auth;
@@ -454,7 +501,7 @@ function authForgot() {
   };
 }
 function authReset() {
-  const o = authOverlay('<h2>رمز جدید</h2><form id="af">' + pwField('p1', 'رمز جدید (حداقل ۶ نویسه)') + pwField('p2', 'تکرار رمز') + '<button class="btn blue" type="submit">ذخیره و ورود</button></form>');
+  const o = authOverlay('<h2>رمز جدید</h2><form id="af">' + pwField('p1', 'رمز جدید (حداقل ۶ نویسه)', 'new-password') + pwField('p2', 'تکرار رمز', 'new-password') + '<button class="btn blue" type="submit">ذخیره و ورود</button></form>');
   $('#af', o).onsubmit = async e => {
     e.preventDefault(); const f = e.target; if (f.p1.value.length < 6) return toast('رمز حداقل ۶ نویسه باشد.', true); if (f.p1.value !== f.p2.value) return toast('تکرار رمز یکسان نیست.', true);
     const code = genCode(); S.settings.auth = await mkAuth(S.settings.auth.user, f.p1.value, undefined, undefined, code, S.settings.auth); await save();

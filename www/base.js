@@ -154,6 +154,19 @@ async function exportFile(name, text, mime) {
   const blob = new Blob([text], { type: mime || 'application/octet-stream' }); const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); return true;
 }
+async function exportBinary(name, bytes, mime) {
+  const P = window.Capacitor && window.Capacitor.Plugins;
+  if (isNative() && P && P.Filesystem && P.Share) {
+    try {
+      let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+      const w = await P.Filesystem.writeFile({ path: name, data: btoa(s), directory: 'CACHE' });
+      await P.Share.share({ title: name, url: w.uri, dialogTitle: 'چاپ یا ذخیره فاکتور' }); return true;
+    } catch (e) { if (e && /cancel/i.test(String(e.message || e))) return false; toast('خطا در ساخت فایل: ' + (e.message || e), true); return false; }
+  }
+  const blob = new Blob([bytes], { type: mime || 'application/octet-stream' }), u = URL.createObjectURL(blob);
+  if (!window.open(u, '_blank')) { const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  setTimeout(() => URL.revokeObjectURL(u), 60000); return true;
+}
 async function shareText(text, title) {
   const P = window.Capacitor && window.Capacitor.Plugins;
   try {

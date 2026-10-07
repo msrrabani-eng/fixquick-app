@@ -100,7 +100,7 @@ select.inp{appearance:auto}
 .sw{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 10px}.sw button{width:42px;height:42px;border-radius:50%;border:3px solid transparent;box-shadow:0 0 0 1px var(--line)}.sw button.on{border-color:var(--ink)}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}.seg button{height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-weight:700}.seg button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
 .fsr{display:flex;align-items:center;gap:10px;margin-bottom:6px}.fsr button{width:52px;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-weight:800;font-size:18px}.fsr .v{flex:1;text-align:center;font-weight:800}
-#auth{position:fixed;inset:0;z-index:400;background:var(--bg);overflow-y:auto;display:flex;justify-content:center;align-items:flex-start;padding:calc(env(safe-area-inset-top) + 24px) 16px 24px}
+#auth{position:fixed;inset:0;z-index:90;background:var(--bg);overflow-y:auto;display:flex;justify-content:center;align-items:flex-start;padding:calc(env(safe-area-inset-top) + 24px) 16px 24px}
 .auth-box{width:100%;max-width:400px}.auth-box h2{text-align:center;margin:8px 0}.auth-logo{display:block;margin:0 auto 6px;height:64px;background:#fff;border-radius:14px;padding:4px 10px}
 .rcode{direction:ltr;text-align:center;font-size:calc(26px * var(--fs,1));font-weight:800;letter-spacing:2px;background:var(--card);border:2px dashed var(--blue);border-radius:14px;padding:16px 6px;margin:10px 0;user-select:all}
 .chk{display:flex;gap:8px;align-items:center;margin:12px 2px;font-size:calc(14px * var(--fs,1))}.chk input{width:20px;height:20px}

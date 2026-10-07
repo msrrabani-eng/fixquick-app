@@ -29,6 +29,8 @@ function pageHome() {
   if (low.length) h += '<div class="card"><div class="ch">📉 کمبود موجودی</div>' + low.slice(0, 5).map(x => '<button class="row" data-act="go" data-h="#/products"><span><b>' + esc(x.product.name) + '</b></span><em class="debit">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em></button>').join('') + '</div>';
   const recent = S.invoices.slice().sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id).slice(0, 4);
   if (recent.length) h += '<div class="card"><div class="ch">آخرین فاکتورها <button class="lnk" data-act="go" data-h="#/invoices">همه</button></div>' + recent.map(i => invRow(i)).join('') + '</div>';
+  const errs = diagLoad(); let seen = 0; try { seen = +localStorage.getItem('fq_err_seen') || 0; } catch (e) { /* ignore */ }
+  if (errs.length > seen) h = '<div class="alert warn">⚠️ برنامه با خطا روبه‌رو شده است. لطفاً گزارش را بفرستید تا برطرف شود. <button class="lnk" data-act="reportWa">ارسال گزارش</button> <button class="lnk" data-act="errSeen">بستن</button></div>' + h;
   return { title: S.settings.business || 'حسابداری فیکس کوییک', html: h };
 }
 function invNotes(i) { return [i.note].concat((i.items || []).map(l => l.note)).filter(Boolean); }
@@ -50,10 +52,27 @@ function pagePeople() {
   h += '<input class="inp" id="people-q" placeholder="جستجوی نام یا تلفن…" value="' + esc(UI.peopleQ) + '" autocomplete="off">' + chips('peopleF', UI.peopleF, [['all', 'همه'], ['debit', 'طلب من'], ['credit', 'بدهی من'], ['zero', 'تسویه']]);
   h += list.length ? '<div class="card flush">' + list.map(p => '<button class="row" data-act="go" data-h="#/person/' + p.id + '"><span><b>' + esc(p.name) + '</b><small>' + (esc(p.phone) || '&nbsp;') + '</small></span><span class="end">' + bal(b[p.id]) + '<small>' + (b[p.id] ? sign(b[p.id]) : '') + '</small></span></button>').join('') + '</div>'
     : empty('👥', q || UI.peopleF !== 'all' ? 'موردی پیدا نشد.' : 'هنوز شخصی ثبت نکرده‌اید.', q ? '' : '<button class="btn blue" data-act="addPerson">+ افزودن شخص</button>');
+  h += '<button class="lnk center" data-act="bulkPeople">📝 افزودن چند شخص یک‌جا</button>';
   if (S.people.some(p => p.archived)) h += '<button class="lnk center" data-act="toggleArchived">' + (UI.showArchived ? 'نمایش فعال‌ها' : 'نمایش بایگانی‌شده‌ها') + '</button>';
   return { title: 'اشخاص', html: h, fab: ['addPerson', '+'] };
 }
 
+function bulkPeople() {
+  const sh = sheet('افزودن چند شخص یک‌جا', '<form id="bpf"><p class="hint">هر شخص را در یک خط بنویسید. اگر خواستید، شماره موبایل را بعد از نام بنویسید؛ مثلاً «علی رضایی ۰۹۱۲۱۲۳۴۵۶۷». نام‌های تکراری نادیده گرفته می‌شوند.</p><textarea class="inp" name="t" rows="9" style="height:auto;padding:10px" placeholder="رضا احمدی ۰۹۱۲۳۴۵۶۷۸۹&#10;مهدی کریمی&#10;فروشگاه نور"></textarea><button class="btn blue" type="submit">افزودن اشخاص</button></form>');
+  sh.q('#bpf').onsubmit = async e => {
+    e.preventDefault(); const lines = Array.from(new Set(e.target.t.value.split(/\n/).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean)));
+    if (!lines.length) return toast('نامی نوشته نشده است.', true);
+    let add = 0, dup = 0;
+    for (const ln of lines) { const { name, phone } = splitNamePhone(ln); const r = Core.addPerson(S, { name, phone }); if (r.ok) add++; else dup++; }
+    if (add) await save(); sh.close(); toast(fa(add) + ' شخص اضافه شد' + (dup ? ' (' + fa(dup) + ' مورد تکراری بود)' : '') + '.', !add); render();
+  };
+  autoFocus(() => sh.q('[name=t]'));
+}
+function splitNamePhone(ln) {
+  const en = Core.toEn(ln), m = en.match(/^(.*?)[\s,،:\-]*((?:\+98|0098|0)?9\d{9})\s*$/);
+  if (!m || !m[1].trim()) return { name: ln, phone: '' };
+  return { name: ln.slice(0, m[1].length).replace(/[\s,،:\-]+$/, '').trim(), phone: m[2] };
+}
 function personForm(p) {
   const sh = sheet(p ? 'ویرایش شخص' : 'شخص جدید', '<form id="pf"><label class="fld"><span>نام</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><label class="fld"><span>تلفن</span><input class="inp ltr" name="phone" inputmode="tel" value="' + esc(p ? p.phone : '') + '"></label><label class="fld"><span>توضیحات</span><input class="inp" name="note" value="' + esc(p ? p.note : '') + '"></label>' +
     (p ? '' : '<div class="fld"><span>مانده اول دوره (اختیاری)</span><div class="row2"><select class="inp" name="obk"><option value="1">او به من بدهکار است (طلب من)</option><option value="-1">من به او بدهکارم (بدهی من)</option></select><input class="inp ltr" name="ob" data-money inputmode="numeric" placeholder="مبلغ" autocomplete="off"></div></div>') +
@@ -278,7 +297,7 @@ function pageReports() {
 function pageMore() {
   const item = (ic, t, h, sub) => '<button class="row" data-act="go" data-h="' + h + '"><span><b>' + ic + ' ' + t + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><em>‹</em></button>';
   const open = S.cheques.filter(c => !c.done).length;
-  return { title: 'بیشتر', html: '<div class="card flush">' + item('📊', 'گزارش‌ها و سود و زیان', '#/reports') + item('📆', 'چک و اقساط', '#/cheques', open ? fa(open) + ' مورد در انتظار' : '') + item('💸', 'هزینه‌ها', '#/expenses') + item('🧾', 'همه فاکتورها', '#/invoices') + '<button class="row" data-act="transfer"><span><b>↔️ حواله بین اشخاص</b></span><em>‹</em></button>' + item('⚙️', 'تنظیمات و پشتیبان', '#/settings') + '</div>' + aboutCard() + '<p class="hint center">حسابداری فیکس کوییک · نسخه ۱.۴</p>' };
+  return { title: 'بیشتر', html: '<div class="card flush">' + item('📊', 'گزارش‌ها و سود و زیان', '#/reports') + item('📆', 'چک و اقساط', '#/cheques', open ? fa(open) + ' مورد در انتظار' : '') + item('💸', 'هزینه‌ها', '#/expenses') + item('🧾', 'همه فاکتورها', '#/invoices') + '<button class="row" data-act="transfer"><span><b>↔️ حواله بین اشخاص</b></span><em>‹</em></button>' + item('⚙️', 'تنظیمات و پشتیبان', '#/settings') + '</div>' + aboutCard() + '<p class="hint center">حسابداری فیکس کوییک · نسخه ' + fa(APP_VER) + '</p>' };
 }
 function aboutCard() {
   const lnk = (ic, t, s, u) => '<a class="ab-row" href="' + u + '" target="_blank" rel="noopener"><i>' + ic + '</i><span><b>' + t + '</b><small>' + s + '</small></span><em>‹</em></a>';
@@ -297,6 +316,8 @@ function pageSettings() {
   h += '<div class="card"><div class="ch">💾 پشتیبان‌گیری</div><p class="hint">' + (days === null ? 'هنوز پشتیبان نگرفته‌اید.' : 'آخرین پشتیبان: ' + fmtDate(S.settings.lastBackup) + ' (' + fa(days) + ' روز پیش)') + '</p><p class="hint">اطلاعات فقط روی همین گوشی است. با حذف برنامه یا پاک‌کردن اطلاعات مرورگر از بین می‌رود؛ پس مرتب پشتیبان بگیرید و فایل را برای خودتان (مثلاً تلگرام/Drive) بفرستید.</p><div class="row2"><button class="btn green" data-act="backup">دریافت پشتیبان</button><button class="btn ghost" data-act="restore">بازیابی از فایل</button></div><input type="file" id="restore-file" accept=".json,application/json" hidden></div>';
   const au = S.settings.auth || {};
   h += '<div class="card"><div class="ch">👤 حساب کاربری</div><p class="hint">نام کاربری: <b>' + esc(au.user || '') + '</b></p><div class="row2"><button class="btn ghost" data-act="changePass">تغییر رمز</button><button class="btn ghost" data-act="newCode">کد بازیابی جدید</button></div><button class="btn ghost" data-act="logout">🔒 خروج و قفل برنامه</button>' + (isNative() ? '<button class="btn ghost" data-act="toggleBio">' + (S.settings.bio ? '👆 اثر انگشت: فعال (غیرفعال کنم)' : '👆 فعال‌سازی ورود با اثر انگشت') + '</button>' : '') + '</div>';
+  const errN = diagLoad().length;
+  h += '<div class="card"><div class="ch">🛠 گزارش خطا</div><p class="hint">اگر برنامه درست کار نکرد یا بسته شد، این گزارش را برای پشتیبانی بفرستید. فقط اطلاعات فنی (نسخه، گوشی، متن خطا) فرستاده می‌شود؛ نام اشخاص و مبالغ در آن نیست.</p><p class="hint">خطاهای ثبت‌شده: <b>' + fa(errN) + '</b></p><div class="row2"><button class="btn green" data-act="reportWa">ارسال در واتساپ</button><button class="btn ghost" data-act="reportShare">کپی / ارسال</button></div>' + (errN ? '<button class="lnk center" data-act="reportClear">پاک‌کردن خطاهای ثبت‌شده</button>' : '') + '</div>';
   h += '<div class="card"><div class="ch">🔎 بررسی سلامت اطلاعات</div><p class="hint">صحت ارتباط تراکنش‌ها، فاکتورها و موجودی انبار را بررسی می‌کند.</p><button class="btn ghost" data-act="audit">اجرای بررسی</button></div>';
   h += '<div class="card"><div class="ch">⚠️ حذف همه اطلاعات</div><button class="btn red" data-act="wipe">پاک‌کردن کامل برنامه</button></div><p class="hint center">تعداد: ' + fa(S.people.length) + ' شخص · ' + fa(S.products.length) + ' کالا · ' + fa(S.invoices.length) + ' فاکتور · ' + fa(S.tx.length) + ' تراکنش</p>';
   return { title: 'تنظیمات', html: h, back: '#/more', mount: () => { $('#setf').onsubmit = async e => { e.preventDefault(); const f = e.target, oc = f.openingCash.value.trim() === '' ? 0 : Core.parseMoney(f.openingCash.value); if (isNaN(oc)) return toast('مبلغ نامعتبر است.', true); S.settings.business = f.business.value.trim(); S.settings.openingCash = oc; await save(); toast('ذخیره شد.'); render(); }; $('#restore-file').onchange = restoreFile; } };
@@ -352,7 +373,11 @@ const actions = {
     const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); } const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice(); };
     pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', onAdd: () => productForm(null, { inInvoice: true, onSaved: fill }) });
   },
-  bulkProducts: () => bulkProducts(),
+  bulkProducts: () => bulkProducts(), bulkPeople: () => bulkPeople(),
+  reportWa: async () => { diagWhatsApp(await diagReport()); try { localStorage.setItem('fq_err_seen', String(diagLoad().length)); } catch (e) { /* ignore */ } },
+  reportShare: async () => shareText(await diagReport(), 'گزارش خطا'),
+  errSeen: () => { try { localStorage.setItem('fq_err_seen', String(diagLoad().length)); } catch (e) { /* ignore */ } render(); },
+  reportClear: async () => { if (await confirmBox('خطاهای ثبت‌شده پاک شود؟', 'پاک کن')) { diagClear(); try { localStorage.setItem('fq_err_seen', '0'); } catch (e) { /* ignore */ } render(); } },
   printInv: d => printInvoice(+d.id),
   addRow: () => { addRow(); calcInvoice(); }, rmRow: (d, el) => { if ($$('.it-row').length > 1) { el.closest('.it-row').remove(); calcInvoice(); } },
   payFull: () => { const f = $('#nf'); f.paid.value = fa(Core.group(+f.dataset.total || 0)); calcInvoice(); },
@@ -392,7 +417,7 @@ const navMap = { home: 'home', people: 'people', person: 'people', invoices: 'in
 let lastRoute = '';
 function render() {
   const hash = (location.hash || '#/home').split('?')[0]; const [, page, arg] = hash.split('/'); const fn = routes[page] || routes.home;
-  let res; try { res = fn(arg); } catch (e) { console.error(e); res = { title: 'خطا', html: '<div class="card"><b class="debit">خطای برنامه</b><p class="hint">' + esc(e.message) + '</p><button class="btn blue" data-act="go" data-h="#/home">بازگشت به خانه</button></div>' }; }
+  let res; try { res = fn(arg); } catch (e) { console.error(e); diagLog('render', e.message, e.stack, hash); res = { title: 'خطا', html: '<div class="card"><b class="debit">خطای برنامه</b><p class="hint">' + esc(e.message) + '</p><p class="hint">لطفاً گزارش خطا را بفرستید تا برطرف شود. اطلاعات شما سالم است.</p><button class="btn green" data-act="reportWa">ارسال گزارش در واتساپ</button><button class="btn blue" data-act="go" data-h="#/home">بازگشت به خانه</button></div>' }; }
   const main = $('#main'), keep = main.scrollTop, same = lastRoute === hash; main.innerHTML = res.html; main.scrollTop = same ? keep : 0; lastRoute = hash; lastFull = location.hash || '#/home';
   $('#title').textContent = res.title; const bk = $('#back'); bk.hidden = !res.back; bk.dataset.h = res.back || '';
   $$('.nav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === (navMap[page] || 'home')));
@@ -400,7 +425,7 @@ function render() {
   if (res.mount) res.mount();
 }
 document.addEventListener('click', e => {
-  const b = e.target.closest('[data-act]'); if (!b) return; const fn = actions[b.dataset.act]; if (fn) { e.preventDefault(); fn(b.dataset, b, e); }
+  const b = e.target.closest('[data-act]'); if (!b) return; const fn = actions[b.dataset.act]; if (fn) { e.preventDefault(); try { const r = fn(b.dataset, b, e); if (r && r.catch) r.catch(x => { diagLog('action', x && x.message || x, x && x.stack, b.dataset.act); toast('خطایی رخ داد؛ از تنظیمات «گزارش خطا» را بفرستید.', true); }); } catch (x) { diagLog('action', x.message, x.stack, b.dataset.act); toast('خطایی رخ داد؛ از تنظیمات «گزارش خطا» را بفرستید.', true); } }
 });
 document.addEventListener('input', e => {
   const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ' }[i.id]; if (!m) return; UI[m] = i.value; const pos = i.selectionStart; render(); const n = $('#' + i.id); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } }
@@ -452,12 +477,31 @@ function authOverlay(html) {
 function authClose() { const o = $('#auth'); if (o) o.remove(); lockedNow = false; }
 function pwField(name, label, ac) { return '<label class="fld"><span>' + label + '</span><input class="inp ltr" type="password" name="' + name + '" id="pw-' + name + '" autocomplete="' + (ac || 'current-password') + '"></label>'; }
 function authGate(relock) {
-  if (!S.settings.auth) { if (S.settings.pinHash && !legacyOk) { showLockLegacy(); return; } return authRegister(); }
+  if (!S.settings.auth) { if (S.settings.pinHash && !legacyOk) { showLockLegacy(); return; } return authWelcome(); }
   lockedNow = true; bioCheck().then(() => { if (lockedNow) authLogin(); });
+}
+const restoreBtn = '<button type="button" class="btn ghost" id="a-rs">📂 بازیابی از فایل پشتیبان</button><input type="file" id="a-rf" accept=".json,application/json" hidden>';
+function bindRestore(o) { const b = $('#a-rs', o), f = $('#a-rf', o); if (!b) return; b.onclick = () => f.click(); f.onchange = async e => { const file = e.target.files[0]; e.target.value = ''; if (file) await authRestore(await file.text()); }; }
+function authWelcome() {
+  lockedNow = true;
+  const o = authOverlay('<h2>به فیکس کوییک خوش آمدید</h2><p class="hint center">اولین بار است که برنامه را باز می‌کنید؟</p><button type="button" class="btn blue" id="a-new">👤 ثبت‌نام (کاربر جدید)</button><p class="hint center" style="margin-top:18px">قبلاً حساب داشته‌اید؟ فایل پشتیبان را انتخاب کنید تا اطلاعات، نام کاربری، رمز و کد بازیابی قبلی‌تان برگردد.</p>' + restoreBtn);
+  $('#a-new', o).onclick = () => authRegister(); bindRestore(o);
+}
+async function authRestore(text) {
+  const r = Core.parseBackup(text); if (!r.ok) return toast(r.error, true);
+  const st = r.state, has = S.people.length + S.products.length + S.invoices.length + S.tx.length;
+  const msg = 'این فایل شامل ' + fa(st.people.length) + ' شخص، ' + fa(st.products.length) + ' کالا و ' + fa(st.invoices.length) + ' فاکتور است' + (st.settings.auth ? ' (حساب کاربری «' + st.settings.auth.user + '»)' : '') + '.' + (has ? ' اطلاعات فعلی این گوشی با آن جایگزین می‌شود.' : '') + ' ادامه می‌دهید؟';
+  if (!(await confirmBox(msg, 'بازیابی', !!has))) return;
+  try { await kvSet('state_before_restore', JSON.stringify(S)); } catch (x) { /* ignore */ }
+  S = Object.assign(Core.emptyState(), st); applyAppearance(S.settings); legacyOk = false; await save();
+  if (S.settings.auth) { toast('بازیابی شد. با نام کاربری و رمز قبلی وارد شوید.'); authGate(); }
+  else if (S.settings.pinHash) { toast('بازیابی شد. رمز ۴ رقمی قبلی را بزنید.'); authGate(); }
+  else { toast('اطلاعات بازیابی شد؛ این پشتیبان حساب کاربری نداشت. یک حساب بسازید.'); authRegister(); }
 }
 function authRegister() {
   lockedNow = true;
-  const o = authOverlay('<h2>ثبت‌نام</h2><p class="hint center">یک نام کاربری و رمز برای ورود به برنامه بسازید. اطلاعات فعلی شما حفظ می‌شود.</p><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" id="fq-user" autocomplete="username" autocapitalize="none"></label>' + pwField('p1', 'رمز (حداقل ۶ نویسه)', 'new-password') + pwField('p2', 'تکرار رمز', 'new-password') + '<label class="fld"><span>سؤال امنیتی (برای بازیابی رمز)</span><select class="inp" name="q">' + SEC_QS.map(q => '<option>' + q + '</option>').join('') + '</select></label><label class="fld"><span>پاسخ</span><input class="inp" name="a" autocomplete="off"></label><button class="btn blue" type="submit">ثبت‌نام</button></form>');
+  const o = authOverlay('<h2>ثبت‌نام</h2><p class="hint center">یک نام کاربری و رمز برای ورود به برنامه بسازید. اطلاعات فعلی شما حفظ می‌شود.</p><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" id="fq-user" autocomplete="username" autocapitalize="none"></label>' + pwField('p1', 'رمز (حداقل ۶ نویسه)', 'new-password') + pwField('p2', 'تکرار رمز', 'new-password') + '<label class="fld"><span>سؤال امنیتی (برای بازیابی رمز)</span><select class="inp" name="q">' + SEC_QS.map(q => '<option>' + q + '</option>').join('') + '</select></label><label class="fld"><span>پاسخ</span><input class="inp" name="a" autocomplete="off"></label><button class="btn blue" type="submit">ثبت‌نام</button></form>' + restoreBtn + (S.settings.auth ? '' : '<button type="button" class="lnk center" id="a-bk">بازگشت</button>'));
+  bindRestore(o); const bk = $('#a-bk', o); if (bk) bk.onclick = authWelcome;
   $('#af', o).onsubmit = async e => {
     e.preventDefault(); const f = e.target, u = f.u.value.trim(), p1 = f.p1.value, p2 = f.p2.value, a = f.a.value.trim();
     if (u.length < 3) return toast('نام کاربری حداقل ۳ نویسه باشد.', true);
@@ -475,7 +519,8 @@ function showCode(code, next) {
 }
 function authLogin() {
   const au = S.settings.auth;
-  const o = authOverlay('<h2>ورود</h2><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" id="fq-user" value="' + esc(au.user) + '" autocomplete="username" autocapitalize="none"></label>' + pwField('p', 'رمز') + '<button class="btn blue" type="submit">ورود</button></form>' + (bioReady ? '<button class="btn ghost" id="bio" type="button">👆 ورود با اثر انگشت</button>' : '') + '<button class="lnk center" id="fg">رمز را فراموش کرده‌ام</button>');
+  const o = authOverlay('<h2>ورود</h2><form id="af"><label class="fld"><span>نام کاربری</span><input class="inp ltr" name="u" id="fq-user" value="' + esc(au.user) + '" autocomplete="username" autocapitalize="none"></label>' + pwField('p', 'رمز') + '<button class="btn blue" type="submit">ورود</button></form>' + (bioReady ? '<button class="btn ghost" id="bio" type="button">👆 ورود با اثر انگشت</button>' : '') + '<button class="lnk center" id="fg">رمز را فراموش کرده‌ام</button><button type="button" class="lnk center" id="a-rs">📂 بازیابی از فایل پشتیبان</button><input type="file" id="a-rf" accept=".json,application/json" hidden>');
+  bindRestore(o);
   $('#af', o).onsubmit = async e => {
     e.preventDefault(); const f = e.target;
     if (Date.now() < failUntil) return toast('چند بار اشتباه زدید؛ ' + fa(Math.ceil((failUntil - Date.now()) / 1000)) + ' ثانیه صبر کنید.', true);

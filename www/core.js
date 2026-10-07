@@ -1,5 +1,5 @@
 /* Fix Quick Accounting — core engine (pure logic, no DOM, no storage).
- * All money values are integers (Toman). Quantities have up to 3 decimals.
+ * All money values are integers (Rial). Quantities have up to 3 decimals.
  * Person balance = sum(debit) - sum(credit):  > 0  => person owes us (بدهکار)
  *                                             < 0  => we owe person (بستانکار)
  */
@@ -242,7 +242,7 @@
 
   /* ───────────── invoices ───────────── */
   Core.invoiceTotals = function (inv) {
-    const lines = inv.items.map(l => ({ productId: l.productId, qty: l.qty, price: l.price, gross: Math.round(l.qty * l.price) }));
+    const lines = inv.items.map(l => ({ productId: l.productId, qty: l.qty, price: l.price, note: l.note || '', gross: Math.round(l.qty * l.price) }));
     const sub = lines.reduce((s, l) => s + l.gross, 0);
     const discount = Math.min(inv.discount || 0, sub);
     let left = discount;
@@ -316,7 +316,7 @@
       if (!byId(st.products, l.productId)) return err('کالای انتخاب‌شده معتبر نیست.');
       if (!(l.qty > 0)) return err('تعداد باید بزرگ‌تر از صفر باشد.');
       if (!Number.isInteger(l.price) || l.price < 0 || l.price > MAX_MONEY) return err('قیمت واحد نامعتبر است.');
-      items.push({ productId: l.productId, qty: r3(l.qty), price: l.price });
+      items.push({ productId: l.productId, qty: r3(l.qty), price: l.price, note: String(l.note || '').trim().slice(0, 500) });
     }
     const discount = d.discount || 0;
     if (!Number.isInteger(discount) || discount < 0) return err('تخفیف نامعتبر است.');
@@ -356,6 +356,7 @@
     if (!d.qty || !isFinite(d.qty)) return err('مقدار تعدیل نامعتبر است.');
     const de = checkDate(d.date); if (de) return err(de);
     const a = { id: nid(st), productId: d.productId, qty: r3(d.qty), cost: d.qty > 0 ? Math.max(0, Math.round(d.cost) || 0) : 0, date: d.date, note: String(d.note || '').trim() };
+    if (d.opening && a.qty > 0) a.opening = true;
     st.adjusts.push(a); const rp = Core.replay(st);
     if (rp.errors.length) { st.adjusts.pop(); st.seq = a.id; return err(stockErrText(st, rp.errors[0])); }
     return ok({ adjust: a });
@@ -423,7 +424,7 @@
       else if (inv.type === 'purchase') r.purchases += t.total;
       else if (inv.type === 'purchase_return') { r.purchaseReturns += t.total; r.cogs += rp.cogs[inv.id] || 0; }
     }
-    for (const a of st.adjusts) if (inRange(a.date, from, to)) r.adjLoss += rp.adjEffect[a.id] || 0;
+    for (const a of st.adjusts) if (!a.opening && inRange(a.date, from, to)) r.adjLoss += rp.adjEffect[a.id] || 0;
     for (const e of st.expenses) if (inRange(e.date, from, to)) r.expenses += e.amount;
     r.revenue = r.sales - r.saleReturns; r.cogsTotal = r.cogs + r.adjLoss; r.gross = r.revenue - r.cogsTotal; r.net = r.gross - r.expenses;
     return r;
@@ -493,9 +494,10 @@
   Core.statementText = function (st, pid, from, to) {
     const p = byId(st.people, pid); const L = Core.ledger(st, pid, from, to);
     const lines = ['صورت‌حساب ' + p.name + (st.settings.business ? ' — ' + st.settings.business : ''), 'تاریخ: ' + Core.fmtDate(Core.todayISO()), ''];
-    if (from) lines.push('مانده از قبل: ' + Core.fmt(Math.abs(L.carry)) + (L.carry > 0 ? ' بدهکار' : L.carry < 0 ? ' بستانکار' : ''));
-    L.rows.forEach(r => lines.push(Core.fmtDate(r.tx.date) + ' | ' + (r.tx.desc || '—') + ' | ' + (r.debit ? 'بدهکار ' + Core.fmt(r.debit) : 'بستانکار ' + Core.fmt(r.credit)) + ' | مانده ' + Core.fmt(Math.abs(r.balance)) + (r.balance > 0 ? ' بد' : r.balance < 0 ? ' بس' : '')));
-    lines.push('', 'مانده نهایی: ' + Core.fmt(Math.abs(L.closing)) + ' تومان ' + (L.closing > 0 ? '(بدهکار)' : L.closing < 0 ? '(بستانکار)' : '(تسویه)'));
+    const who = v => v > 0 ? ' (شما بدهکارید)' : v < 0 ? ' (ما بدهکاریم)' : '';
+    if (from) lines.push('مانده از قبل: ' + Core.fmt(Math.abs(L.carry)) + who(L.carry));
+    L.rows.forEach(r => lines.push(Core.fmtDate(r.tx.date) + ' | ' + (r.tx.desc || '—') + ' | ' + (r.debit ? 'اضافه ' + Core.fmt(r.debit) : 'کم ' + Core.fmt(r.credit)) + ' | مانده ' + Core.fmt(Math.abs(r.balance)) + who(r.balance)));
+    lines.push('', 'مانده نهایی: ' + Core.fmt(Math.abs(L.closing)) + ' ریال ' + (L.closing > 0 ? '(شما بدهکارید)' : L.closing < 0 ? '(ما بدهکاریم)' : '(تسویه)'));
     return lines.join('\n');
   };
 

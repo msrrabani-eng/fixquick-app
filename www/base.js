@@ -167,5 +167,5 @@ const stamp = () => Core.isoToJalali(Core.todayISO()).replace(/\//g, '');
 
 /* ── result handler ── */
 async function done(r, okMsg) { if (!r.ok) { toast(r.error, true); return false; } await save(); if (okMsg) toast(okMsg); render(); return true; }
-function sign(b) { return b > 0 ? 'بدهکار' : b < 0 ? 'بستانکار' : 'تسویه'; }
+function sign(b) { return b > 0 ? 'طلب من' : b < 0 ? 'بدهی من' : 'تسویه'; }
 function bal(b) { return '<span class="' + (b > 0 ? 'debit' : b < 0 ? 'credit' : 'zero') + '">' + fmt(Math.abs(b)) + '</span>'; }

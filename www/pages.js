@@ -1,6 +1,6 @@
 /* Pages, forms and actions */
 'use strict';
-const UI = { peopleQ: '', peopleF: 'all', invQ: '', invF: 'all', prodQ: '', chqTab: 'open', rep: 'month', repFrom: null, repTo: null, stmtFrom: null, stmtTo: null, showArchived: false, limPeople: 150, limInv: 100, limProd: 100, limChq: 150, limLedger: 200 };
+const UI = { peopleQ: '', peopleF: 'all', invQ: '', invF: 'all', prodQ: '', chqTab: 'open', rep: 'mtd', repFrom: null, repTo: null, stmtFrom: null, stmtTo: null, showArchived: false, limPeople: 150, limInv: 100, limProd: 100, limChq: 150, limLedger: 200 };
 // long lists show the first N rows; «نمایش بیشتر» adds more (keeps phones fast with thousands of records)
 function moreBtn(k, shown, total) { return total > shown ? '<button class="btn ghost" data-act="more" data-k="' + k + '">نمایش بیشتر (' + fa(shown) + ' از ' + fa(total) + ')</button>' : ''; }
 const today = () => Core.todayISO();
@@ -10,6 +10,8 @@ const unitOf = id => { const p = Core.byId(S.products, id); return p ? p.unit : 
 const stat = (label, val, cls, sub) => '<div class="stat"><small>' + label + '</small><b class="' + (cls || '') + '">' + val + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div>';
 const empty = (icon, text, btn) => '<div class="empty big"><div class="ic">' + icon + '</div><p>' + text + '</p>' + (btn || '') + '</div>';
 const chips = (name, cur, opts) => '<div class="chips">' + opts.map(o => '<button type="button" class="chip' + (cur === o[0] ? ' on' : '') + '" data-act="chip" data-k="' + name + '" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>';
+const vatRateSet = () => { const v = Number(S.settings.vatRate); return v >= 0 && v <= 100 && S.settings.vatRate !== undefined && S.settings.vatRate !== null && S.settings.vatRate !== '' ? v : 10; };
+const fyMonth = () => Math.min(12, Math.max(1, +S.settings.fyMonth || 1));
 const methodSel = (cur) => '<label class="fld"><span>روش</span><select class="inp" name="method">' + Object.keys(Core.METHODS).map(k => '<option value="' + k + '"' + (k === (cur || 'cash') ? ' selected' : '') + '>' + Core.METHODS[k] + '</option>').join('') + '</select></label>';
 const backTo = h => '<button class="back" data-act="go" data-h="' + h + '">‹ بازگشت</button>';
 
@@ -26,7 +28,8 @@ function pageHome() {
   if (hasData && (days === null || days > 14)) h += '<div class="alert warn">💾 ' + (days === null ? 'هنوز پشتیبان نگرفته‌اید.' : 'آخرین پشتیبان ' + fa(days) + ' روز پیش بوده.') + ' <button class="lnk" data-act="backup">پشتیبان بگیر</button></div>';
   h += '<div class="stats">' + stat('طلب من از مشتریان', fmt(rp.receivable), rp.receivable ? 'debit' : 'zero', 'ریال') + stat('بدهی من به دیگران', fmt(rp.payable), rp.payable ? 'credit' : 'zero', 'ریال') + stat('موجودی صندوق/بانک', fmt(cash), cash < 0 ? 'debit' : '', 'ریال') + stat('ارزش انبار', fmt(inv), '', 'ریال') + '</div>';
   h += '<div class="quick"><button class="q green" data-act="newInv" data-t="sale">🧾<span>فروش</span></button><button class="q blue" data-act="newInv" data-t="purchase">🛒<span>خرید</span></button><button class="q" data-act="quickTx" data-t="receipt">⬇️<span>دریافت</span></button><button class="q" data-act="quickTx" data-t="payment">⬆️<span>پرداخت</span></button></div>';
-  h += '<div class="stats">' + stat('فروش امروز', fmt(tr.revenue), '', 'ریال') + stat('سود خالص این ماه', fmt(mr.net), mr.net < 0 ? 'debit' : mr.net > 0 ? 'credit' : 'zero', 'ریال') + '</div>';
+  const pl = [['today', 'امروز'], ['yesterday', 'دیروز'], ['mtd', 'از اول ماه'], ['fytd', 'از اول سال مالی']].map(([k, l]) => { const rg = Core.periodRange(k, t, fyMonth()), r = Core.report(S, rg.from, rg.to); return '<button class="pl" data-act="plGo" data-k="' + k + '"><small>' + l + '</small><b class="' + (r.net < 0 ? 'debit' : r.net > 0 ? 'credit' : 'zero') + '">' + fmt(r.net) + '</b><em>فروش ' + fmt(r.revenue) + '</em></button>'; }).join('');
+  h += '<div class="card"><div class="ch">💹 سود و زیان خالص (ریال) <button class="lnk" data-act="go" data-h="#/reports">جزئیات</button></div><div class="plgrid">' + pl + '</div></div>';
   if (chq.length) h += '<div class="card"><div class="ch">⏰ چک و اقساط نزدیک/معوق</div>' + chq.slice(0, 5).map(x => '<button class="row" data-act="go" data-h="#/cheques"><span><b>' + esc(x.c.title) + '</b><small>' + (x.c.personId ? esc(personName(x.c.personId)) + ' · ' : '') + (x.c.direction === 'receive' ? 'دریافتی' : 'پرداختی') + ' · ' + fmtDate(x.c.dueDate) + '</small></span><em class="' + (x.st === 'overdue' ? 'debit' : '') + '">' + fmt(x.c.amount) + (x.st === 'overdue' ? ' ⚠️' : '') + '</em></button>').join('') + '</div>';
   if (low.length) h += '<div class="card"><div class="ch">📉 کمبود موجودی</div>' + low.slice(0, 5).map(x => '<button class="row" data-act="go" data-h="#/products"><span><b>' + esc(x.product.name) + '</b></span><em class="debit">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em></button>').join('') + '</div>';
   const recent = S.invoices.slice().sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id).slice(0, 4);
@@ -107,7 +110,7 @@ function pagePerson(id) {
 }
 
 /* tx forms */
-function txForm(type, personId, tx) {
+function txForm(type, personId, tx, pre) {
   const titles = { receipt: 'دریافت از شخص', payment: 'پرداخت به شخص', manual: 'ثبت دستی در حساب' };
   const t = tx ? tx.type : type; const isPay = t === 'receipt' || t === 'payment';
   const sh = sheet(tx ? 'ویرایش تراکنش' : titles[t], '<form id="tf"><label class="fld"><span>شخص</span><button type="button" class="inp pick" id="tf-p">' + esc(personId ? personName(personId) : 'انتخاب شخص…') + '</button></label>' +
@@ -123,22 +126,24 @@ function txForm(type, personId, tx) {
     if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true);
     if (!tx && !gate()) return;
     const r = tx ? Core.editTx(S, tx.id, { amount, date, desc: f.desc.value, kind: f.kind ? f.kind.value : tx.kind, method: f.method ? f.method.value : null })
-      : Core.addTx(S, { personId, type: t, kind: f.kind ? f.kind.value : null, amount, date, desc: f.desc.value || titles[t], method: f.method ? f.method.value : null });
+      : Core.addTx(S, { personId, type: t, kind: f.kind ? f.kind.value : null, amount, date, desc: f.desc.value || titles[t], method: f.method ? f.method.value : null, ref: pre && pre.ref || null });
     if (await done(r, 'ثبت شد.')) { if (!tx) bumpUsage(); sh.close(); }
   };
 }
-function transferForm(fromId) {
-  let from = fromId || null, to = null;
-  const sh = sheet('حواله بین دو شخص', '<form id="xf"><label class="fld"><span>از حساب (پرداخت‌کننده)</span><button type="button" class="inp pick" id="xf-a">' + esc(from ? personName(from) : 'انتخاب…') + '</button></label><label class="fld"><span>به حساب (دریافت‌کننده)</span><button type="button" class="inp pick" id="xf-b">انتخاب…</button></label>' + moneyField('amount', 0, 'مبلغ') + dateField('date', today()) + '<label class="fld"><span>شرح</span><input class="inp" name="desc"></label><p class="hint">مبلغ از حساب مبدأ کم و به حساب مقصد اضافه می‌شود.</p><button class="btn blue" type="submit">ثبت حواله</button></form>');
+function transferForm(fromId, group) {
+  const ti = group ? Core.transferInfo(S, group) : null;
+  let from = ti ? ti.fromId : (fromId || null), to = ti ? ti.toId : null;
+  const sh = sheet(ti ? 'ویرایش حواله' : 'حواله بین دو شخص', '<form id="xf"><label class="fld"><span>از حساب (پرداخت‌کننده)</span><button type="button" class="inp pick" id="xf-a">' + esc(from ? personName(from) : 'انتخاب…') + '</button></label><label class="fld"><span>به حساب (دریافت‌کننده)</span><button type="button" class="inp pick" id="xf-b">' + esc(to ? personName(to) : 'انتخاب…') + '</button></label>' + moneyField('amount', ti ? ti.amount : 0, 'مبلغ') + dateField('date', ti ? ti.date : today()) + '<label class="fld"><span>شرح</span><input class="inp" name="desc" value="' + esc(ti ? ti.desc : '') + '"></label><p class="hint">مبلغ از حساب مبدأ کم و به حساب مقصد اضافه می‌شود.</p><button class="btn blue" type="submit">' + (ti ? 'ذخیره تغییرات' : 'ثبت حواله') + '</button></form>');
   sh.q('#xf-a').onclick = () => pickList('از حساب', personItems(), v => { from = +v; sh.q('#xf-a').textContent = personName(from); });
   sh.q('#xf-b').onclick = () => pickList('به حساب', personItems(), v => { to = +v; sh.q('#xf-b').textContent = personName(to); });
-  const f = sh.q('#xf'); f.onsubmit = async e => { e.preventDefault(); const date = readDate(f, 'date'), amount = Core.parseMoney(f.amount.value); if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); if (!gate()) return; if (await done(Core.addTransfer(S, { fromId: from, toId: to, amount, date, desc: f.desc.value }), 'حواله ثبت شد.')) { bumpUsage(); sh.close(); } };
+  const f = sh.q('#xf'); f.onsubmit = async e => { e.preventDefault(); const date = readDate(f, 'date'), amount = Core.parseMoney(f.amount.value); if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); if (ti) { if (await done(Core.editTransfer(S, group, { fromId: from, toId: to, amount, date, desc: f.desc.value }), 'حواله اصلاح شد.')) sh.close(); return; } if (!gate()) return; if (await done(Core.addTransfer(S, { fromId: from, toId: to, amount, date, desc: f.desc.value }), 'حواله ثبت شد.')) { bumpUsage(); sh.close(); } };
 }
 function txOpen(id) {
   const t = Core.byId(S.tx, id); if (!t) return;
   const inv = t.ref ? Core.byId(S.invoices, t.ref) : null;
-  const sh = sheet('جزئیات تراکنش', '<div class="kv"><span>شخص</span><b>' + esc(personName(t.personId)) + '</b><span>تاریخ</span><b>' + fmtDate(t.date) + '</b><span>مبلغ</span><b class="' + (t.kind === 'debit' ? 'debit' : 'credit') + '">' + fmt(t.amount) + ' ' + (t.kind === 'debit' ? 'اضافه به حساب او' : 'کم از حساب او') + '</b>' + (t.method ? '<span>روش</span><b>' + Core.METHODS[t.method] + '</b>' : '') + '<span>شرح</span><b>' + esc(fa(t.desc || '—')) + '</b></div><div class="row2">' + (inv ? '<button class="btn blue" data-go="#/inv/' + inv.id + '">مشاهده فاکتور</button>' : '') + (t.type !== 'invoice' && t.type !== 'transfer' ? '<button class="btn ghost" data-edit>✏️ ویرایش</button>' : '') + (t.type !== 'invoice' ? '<button class="btn red" data-del>🗑 حذف</button>' : '') + '</div>');
-  const g = sh.q('[data-go]'); if (g) g.onclick = () => { sh.close(); goHash(g.dataset.go); };
+  const sh = sheet('جزئیات تراکنش', '<div class="kv"><span>شخص</span><b>' + esc(personName(t.personId)) + '</b><span>تاریخ</span><b>' + fmtDate(t.date) + '</b><span>مبلغ</span><b class="' + (t.kind === 'debit' ? 'debit' : 'credit') + '">' + fmt(t.amount) + ' ' + (t.kind === 'debit' ? 'اضافه به حساب او' : 'کم از حساب او') + '</b>' + (t.method ? '<span>روش</span><b>' + Core.METHODS[t.method] + '</b>' : '') + '<span>شرح</span><b>' + esc(fa(t.desc || '—')) + '</b></div><div class="row2">' + (inv ? '<button class="btn blue" data-go="#/inv/' + inv.id + '">مشاهده فاکتور</button>' : '') + (inv && t.type === 'invoice' ? '<button class="btn ghost" data-go="#/edit/' + inv.id + '">✏️ ویرایش فاکتور</button>' : '') + (t.type === 'transfer' ? '<button class="btn ghost" data-xedit>✏️ ویرایش حواله</button>' : '') + (t.type !== 'invoice' && t.type !== 'transfer' ? '<button class="btn ghost" data-edit>✏️ ویرایش</button>' : '') + (t.type !== 'invoice' ? '<button class="btn red" data-del>🗑 حذف</button>' : '') + '</div>');
+  sh.el.querySelectorAll('[data-go]').forEach(g => g.onclick = () => { sh.close(); goHash(g.dataset.go); });
+  const xe = sh.q('[data-xedit]'); if (xe) xe.onclick = () => { sh.close(); transferForm(null, t.group); };
   const ed = sh.q('[data-edit]'); if (ed) ed.onclick = () => { sh.close(); txForm(t.type, t.personId, t); };
   const dl = sh.q('[data-del]'); if (dl) dl.onclick = async () => { if (await confirmBox(t.group ? 'هر دو سمت این حواله حذف می‌شود. ادامه می‌دهید؟' : 'این تراکنش حذف شود؟', 'حذف', true)) { sh.close(); await done(Core.deleteTx(S, t.id), 'حذف شد.'); } };
 }
@@ -161,29 +166,37 @@ function pageInvoice(id) {
   const dirTxt = i.type === 'sale' || i.type === 'purchase_return' ? 'دریافت' : 'پرداخت';
   let h = '<div class="card"><div class="kv"><span>نوع</span><b>' + Core.TYPE_FA[i.type] + '</b><span>شماره</span><b>' + fa(i.no) + '</b><span>شخص</span><b><a data-act="go" data-h="#/person/' + i.personId + '">' + esc(personName(i.personId)) + '</a></b><span>تاریخ</span><b>' + fmtDate(i.date) + '</b>' + (i.note ? '<span>توضیحات</span><b>' + esc(i.note) + '</b>' : '') + '</div></div>';
   h += '<div class="card flush"><div class="lh it"><span>کالا</span><span>تعداد</span><span>قیمت</span><span>جمع</span></div>' + info.lines.map(l => '<div class="lr it"><span><b>' + esc(prodName(l.productId)) + '</b>' + (l.note ? '<small class="sn-t">🔖 ' + esc(l.note) + '</small>' : '') + '</span><span>' + Core.fmtQty(l.qty) + ' ' + esc(unitOf(l.productId)) + '</span><span>' + fmt(l.price) + '</span><span>' + fmt(l.gross) + '</span></div>').join('') + '</div>';
-  h += '<div class="card"><div class="kv"><span>جمع اقلام</span><b>' + fmt(info.sub) + '</b>' + (info.discount ? '<span>تخفیف</span><b>' + fmt(info.discount) + '</b>' : '') + '<span>جمع نهایی</span><b class="big">' + fmt(info.total) + ' ریال</b><span>' + (dirTxt === 'دریافت' ? 'دریافت‌شده' : 'پرداخت‌شده') + '</span><b>' + fmt(info.paid) + '</b><span>مانده این فاکتور</span><b class="' + (info.remaining ? 'debit' : 'credit') + '">' + fmt(info.remaining) + '</b></div></div>';
+  h += '<div class="card"><div class="kv"><span>جمع اقلام</span><b>' + fmt(info.sub) + '</b>' + (info.discount ? '<span>تخفیف</span><b>' + fmt(info.discount) + '</b>' : '') + (info.vat ? '<span>ارزش افزوده (' + fa(info.vatRate) + '٪)</span><b>' + fmt(info.vat) + '</b>' : '') + '<span>جمع نهایی</span><b class="big">' + fmt(info.total) + ' ریال</b><span>' + (dirTxt === 'دریافت' ? 'دریافت‌شده' : 'پرداخت‌شده') + '</span><b>' + fmt(info.paid) + '</b><span>مانده این فاکتور</span><b class="' + (info.remaining ? 'debit' : 'credit') + '">' + fmt(info.remaining) + '</b></div></div>';
   if (pays.length) h += '<div class="card"><div class="ch">پرداخت‌ها</div>' + pays.map(t => '<button class="row" data-act="txOpen" data-id="' + t.id + '"><span><b>' + fmtDate(t.date) + '</b><small>' + Core.METHODS[t.method] + '</small></span><em>' + fmt(t.amount) + '</em></button>').join('') + '</div>';
-  h += '<div class="toolbar">' + (info.remaining > 0 ? '<button class="btn blue sm" data-act="payInv" data-id="' + i.id + '">' + (dirTxt === 'دریافت' ? '⬇️ ثبت دریافت' : '⬆️ ثبت پرداخت') + '</button>' : '') + '<button class="btn ghost sm" data-act="shareInv" data-id="' + i.id + '">📤 ارسال متن</button>' + '<button class="btn ghost sm" data-act="printInv" data-id="' + i.id + '">🖨 چاپ فاکتور (A5)</button>' + '<button class="btn ghost sm red" data-act="delInv" data-id="' + i.id + '">🗑 حذف</button></div>';
+  h += '<div class="toolbar">' + (info.remaining > 0 ? '<button class="btn blue sm" data-act="payInv" data-id="' + i.id + '">' + (dirTxt === 'دریافت' ? '⬇️ ثبت دریافت' : '⬆️ ثبت پرداخت') + '</button>' : '') + '<button class="btn ghost sm" data-act="go" data-h="#/edit/' + i.id + '">✏️ ویرایش</button><button class="btn ghost sm" data-act="shareInv" data-id="' + i.id + '">📤 ارسال متن</button>' + '<button class="btn ghost sm" data-act="printInv" data-id="' + i.id + '">🖨 چاپ فاکتور (A5)</button>' + '<button class="btn ghost sm red" data-act="delInv" data-id="' + i.id + '">🗑 حذف</button></div>';
   return { title: Core.TYPE_FA[i.type] + ' ' + fa(i.no), html: h, back: '#/invoices' };
 }
 function invoiceText(i) {
   const info = Core.invoiceInfo(S, i);
-  return [(S.settings.business || 'فیکس کوییک') + ' — فاکتور ' + Core.TYPE_FA[i.type] + ' شماره ' + fa(i.no), 'شخص: ' + personName(i.personId), 'تاریخ: ' + fmtDate(i.date), ''].concat(info.lines.map(l => '• ' + prodName(l.productId) + ' × ' + Core.fmtQty(l.qty) + ' × ' + fmt(l.price) + ' = ' + fmt(l.gross) + (l.note ? ' (' + l.note + ')' : '')), ['', 'جمع: ' + fmt(info.sub)], info.discount ? ['تخفیف: ' + fmt(info.discount)] : [], ['مبلغ نهایی: ' + fmt(info.total) + ' ریال', 'پرداخت‌شده: ' + fmt(info.paid), 'مانده: ' + fmt(info.remaining)]).join('\n');
+  return [(S.settings.business || 'فیکس کوییک') + ' — فاکتور ' + Core.TYPE_FA[i.type] + ' شماره ' + fa(i.no), 'شخص: ' + personName(i.personId), 'تاریخ: ' + fmtDate(i.date), ''].concat(info.lines.map(l => '• ' + prodName(l.productId) + ' × ' + Core.fmtQty(l.qty) + ' × ' + fmt(l.price) + ' = ' + fmt(l.gross) + (l.note ? ' (' + l.note + ')' : '')), ['', 'جمع: ' + fmt(info.sub)], info.discount ? ['تخفیف: ' + fmt(info.discount)] : [], info.vat ? ['ارزش افزوده (' + fa(info.vatRate) + '٪): ' + fmt(info.vat)] : [], ['مبلغ نهایی: ' + fmt(info.total) + ' ریال', 'پرداخت‌شده: ' + fmt(info.paid), 'مانده: ' + fmt(info.remaining)]).join('\n');
 }
 
 /* new invoice page */
 function pageNewInvoice(type, preset) {
+  const ed = preset && preset.edit ? preset.edit : null;
+  if (ed) type = ed.type;
   if (!Core.TYPE_FA[type]) type = 'sale';
-  const personId = preset && preset.p ? +preset.p : null;
+  const personId = ed ? ed.personId : (preset && preset.p ? +preset.p : null);
   const isSaleSide = type === 'sale' || type === 'sale_return';
   const payLabel = type === 'sale' ? 'دریافتی همزمان' : type === 'purchase' ? 'پرداختی همزمان' : type === 'sale_return' ? 'مبلغ بازپرداخت‌شده به مشتری' : 'مبلغ دریافتی از تأمین‌کننده';
-  let h = '<div class="chips">' + Object.keys(Core.TYPE_FA).map(k => '<button type="button" class="chip' + (k === type ? ' on' : '') + '" data-act="newInv" data-t="' + k + '"' + (personId ? ' data-p="' + personId + '"' : '') + '>' + Core.TYPE_FA[k] + '</button>').join('') + '</div>';
-  h += '<form id="nf" class="card"><input type="hidden" name="type" value="' + type + '"><input type="hidden" name="pid" value="' + (personId || '') + '"><label class="fld"><span>' + (isSaleSide ? 'مشتری' : 'تأمین‌کننده / فروشنده') + '</span><button type="button" class="inp pick" id="nf-p" data-act="pickInvPerson">' + (personId ? esc(personName(personId)) : 'انتخاب شخص…') + '</button></label><div class="row2">' + dateField('date', today()) + '<label class="fld"><span>شماره فاکتور</span><input class="inp ltr" name="no" inputmode="numeric" value="' + fa(Core.nextInvoiceNo(S)) + '"></label></div>' +
+  const first = ed ? Core.firstPayment(S, ed.id) : null;
+  const vatOn = ed ? (ed.vatRate > 0) : (S.settings.vatOn !== false), vr = ed && ed.vatRate > 0 ? ed.vatRate : vatRateSet();
+  let h = ed ? '<div class="alert">✏️ در حال ویرایش فاکتور ' + Core.TYPE_FA[type] + ' شماره ' + fa(ed.no) + '. بعد از ذخیره، حساب شخص، انبار و سود و زیان خودکار اصلاح می‌شوند.</div>' : '<div class="chips">' + Object.keys(Core.TYPE_FA).map(k => '<button type="button" class="chip' + (k === type ? ' on' : '') + '" data-act="newInv" data-t="' + k + '"' + (personId ? ' data-p="' + personId + '"' : '') + '>' + Core.TYPE_FA[k] + '</button>').join('') + '</div>';
+  h += '<form id="nf" class="card"' + (ed ? ' data-edit="' + ed.id + '"' : '') + '><input type="hidden" name="type" value="' + type + '"><input type="hidden" name="pid" value="' + (personId || '') + '"><input type="hidden" name="vr" value="' + vr + '"><label class="fld"><span>' + (isSaleSide ? 'مشتری' : 'تأمین‌کننده / فروشنده') + '</span><button type="button" class="inp pick" id="nf-p" data-act="pickInvPerson">' + (personId ? esc(personName(personId)) : 'انتخاب شخص…') + '</button></label><div class="row2">' + dateField('date', ed ? ed.date : today()) + '<label class="fld"><span>شماره فاکتور</span><input class="inp ltr" name="no" inputmode="numeric" value="' + fa(ed ? ed.no : Core.nextInvoiceNo(S)) + '"></label></div>' +
     '<div class="ch">اقلام</div><div id="rows"></div><div class="row2"><button type="button" class="btn ghost" data-act="addRow">+ افزودن قلم</button><button type="button" class="btn ghost" data-act="scanInv">📷 اسکن کالا</button></div>' +
-    '<div class="sumbox"><div class="kv"><span>جمع اقلام</span><b id="s-sub">۰</b></div></div>' + moneyField('discount', 0, 'تخفیف (ریال)') +
-    '<div class="sumbox"><div class="kv"><span>مبلغ نهایی</span><b class="big" id="s-tot">۰ ریال</b></div></div>' + moneyField('paid', 0, payLabel) + '<div class="row2"><button type="button" class="lnk" data-act="payFull">تسویه کامل</button></div>' + methodSel('cash') +
-    '<div class="kv small"><span>' + ({ sale: 'او هنوز باید به من بدهد', purchase: 'من هنوز باید به او بدهم', sale_return: 'مانده‌ای که باید به او برگردانم', purchase_return: 'مانده‌ای که او باید به من برگرداند' }[type]) + '</span><b id="s-rem">۰</b></div><label class="fld"><span>توضیحات</span><input class="inp" name="note"></label><button class="btn ' + (isSaleSide ? 'green' : 'blue') + '" type="submit" id="nf-save">ثبت فاکتور ' + Core.TYPE_FA[type] + '</button></form>';
-  return { title: 'فاکتور ' + Core.TYPE_FA[type], html: h, back: '#/invoices', mount: () => { addRow(); calcInvoice(); const f = $('#nf'); f.addEventListener('input', calcInvoice); f.onsubmit = submitInvoice; } };
+    '<div class="sumbox"><div class="kv"><span>جمع اقلام</span><b id="s-sub">۰</b></div></div>' + moneyField('discount', ed ? ed.discount : 0, 'تخفیف (ریال)') +
+    '<label class="chk vatchk"><input type="checkbox" name="vat"' + (vatOn ? ' checked' : '') + '> ارزش افزوده (' + fa(vr) + '٪)</label><div class="sumbox" id="s-vatbox"><div class="kv"><span>ارزش افزوده</span><b id="s-vat">۰</b></div></div>' +
+    '<div class="sumbox"><div class="kv"><span>مبلغ نهایی</span><b class="big" id="s-tot">۰ ریال</b></div></div>' + moneyField('paid', first ? first.amount : 0, payLabel) + '<div class="row2"><button type="button" class="lnk" data-act="payFull">تسویه کامل</button></div>' + methodSel(first ? first.method : 'cash') +
+    '<div class="kv small"><span>' + ({ sale: 'او هنوز باید به من بدهد', purchase: 'من هنوز باید به او بدهم', sale_return: 'مانده‌ای که باید به او برگردانم', purchase_return: 'مانده‌ای که او باید به من برگرداند' }[type]) + '</span><b id="s-rem">۰</b></div><label class="fld"><span>توضیحات</span><input class="inp" name="note" value="' + esc(ed ? ed.note : '') + '"></label><button class="btn ' + (isSaleSide ? 'green' : 'blue') + '" type="submit" id="nf-save">' + (ed ? 'ذخیره تغییرات فاکتور' : 'ثبت فاکتور ' + Core.TYPE_FA[type]) + '</button></form>';
+  return { title: ed ? 'ویرایش فاکتور ' + fa(ed.no) : 'فاکتور ' + Core.TYPE_FA[type], html: h, back: ed ? '#/inv/' + ed.id : '#/invoices', mount: () => {
+    if (ed) ed.items.forEach(l => { addRow(); const rows = $$('.it-row'), r = rows[rows.length - 1], pr = Core.byId(S.products, l.productId); r.dataset.pid = l.productId; $('.pick', r).textContent = pr ? pr.name : '—'; $('[name=qty]', r).value = fa(l.qty); $('[name=price]', r).value = fa(Core.group(l.price)); $('[name=sn]', r).value = l.note || ''; });
+    else addRow();
+    calcInvoice(); const f = $('#nf'); f.addEventListener('input', calcInvoice); f.addEventListener('change', calcInvoice); f.onsubmit = submitInvoice; } };
 }
 function addRow() {
   const rows = $('#rows'), d = document.createElement('div'); d.className = 'it-row'; d.dataset.pid = '';
@@ -202,17 +215,26 @@ function readInvoice() {
 function calcInvoice() {
   const f = $('#nf'); if (!f) return; const rd = readInvoice(); let sub = 0;
   $$('.it-row', f).forEach((r, i) => { const it = rd.items[i]; const t = (it.qty > 0 && it.price >= 0) ? Math.round(it.qty * it.price) : 0; sub += t; $('.lt', r).textContent = fmt(t); });
-  const disc = isNaN(rd.discount) ? 0 : Math.min(rd.discount, sub), tot = sub - disc, paid = isNaN(rd.paid) ? 0 : rd.paid;
-  $('#s-sub').textContent = fmt(sub); $('#s-tot').textContent = fmt(tot) + ' ریال'; $('#s-rem').textContent = fmt(tot - paid);
+  const disc = isNaN(rd.discount) ? 0 : Math.min(rd.discount, sub), vat = f.vat && f.vat.checked ? Math.round((sub - disc) * (+f.vr.value || 0) / 100) : 0, tot = sub - disc + vat, paid = isNaN(rd.paid) ? 0 : rd.paid;
+  $('#s-sub').textContent = fmt(sub); $('#s-vat').textContent = fmt(vat); $('#s-vatbox').hidden = !vat; $('#s-tot').textContent = fmt(tot) + ' ریال'; $('#s-rem').textContent = fmt(tot - paid);
   f.dataset.total = tot;
 }
 async function submitInvoice(e) {
-  e.preventDefault(); const f = $('#nf'), rd = readInvoice(); const date = readDate(f, 'date');
+  e.preventDefault(); const f = $('#nf'), rd = readInvoice(); const date = readDate(f, 'date'), editId = +f.dataset.edit || 0;
   if (!f.pid.value) return toast('شخص را انتخاب کنید.', true); if (!date) return toast('تاریخ نامعتبر است.', true); if (rd.bad) return toast(rd.bad, true);
   if (isNaN(rd.discount)) return toast('تخفیف نامعتبر است.', true); if (isNaN(rd.paid)) return toast('مبلغ پرداخت/دریافت نامعتبر است.', true);
-  if (!gate()) return;
-  const r = Core.addInvoice(S, { type: f.type.value, personId: +f.pid.value, date, no: Core.toEn(f.no.value).trim(), items: rd.items, discount: rd.discount, paid: rd.paid, method: f.method.value, note: f.note.value });
-  if (!r.ok) return toast(r.error, true); bumpUsage(); save(); toast('فاکتور ثبت شد.'); goHash('#/inv/' + r.invoice.id);
+  if (!editId && !gate()) return;
+  const type = f.type.value;
+  // selling below cost: ask first
+  if (type === 'sale') {
+    const sub = rd.items.reduce((s, l) => s + Math.round(l.qty * l.price), 0), disc = Math.min(rd.discount || 0, sub), rp = Core.replay(S), low = [];
+    rd.items.forEach(l => { const p = Core.byId(S.products, l.productId); if (!p) return; const st = rp.stock[p.id], cost = st && st.avg > 0 ? st.avg : p.buyPrice || 0; const unit = sub ? l.price * (1 - disc / sub) : l.price; if (cost > 0 && unit < cost - 0.5) low.push('«' + p.name + '»: فروش ' + fmt(Math.round(unit)) + ' — خرید ' + fmt(Math.round(cost)) + ' (زیان ' + fmt(Math.round((cost - unit) * l.qty)) + ')'); });
+    if (low.length && !(await confirmBox('⚠️ این فروش زیر قیمت خرید است:\n' + low.join('\n') + '\nبا زیان ثبت شود؟', 'بله، ثبت کن', true))) return;
+  }
+  const d = { type, personId: +f.pid.value, date, no: Core.toEn(f.no.value).trim(), items: rd.items, discount: rd.discount, paid: rd.paid, method: f.method.value, note: f.note.value, vatRate: f.vat.checked ? (+f.vr.value || 0) : 0 };
+  const r = editId ? Core.editInvoice(S, editId, d) : Core.addInvoice(S, d);
+  if (!r.ok) return toast(r.error, true);
+  S.settings.vatOn = f.vat.checked; if (!editId) bumpUsage(); save(); toast(editId ? 'تغییرات فاکتور ذخیره شد.' : 'فاکتور ثبت شد.'); goHash('#/inv/' + r.invoice.id);
 }
 
 /* ─────────── PRODUCTS ─────────── */
@@ -264,14 +286,15 @@ function pageCheques() {
   const t = today(); const list = S.cheques.filter(c => UI.chqTab === 'open' ? !c.done : c.done).sort((a, b) => UI.chqTab === 'open' ? (a.dueDate < b.dueDate ? -1 : 1) : (a.doneAt < b.doneAt ? 1 : -1));
   const open = S.cheques.filter(c => !c.done), rec = open.filter(c => c.direction === 'receive').reduce((s, c) => s + c.amount, 0), pay = open.filter(c => c.direction === 'pay').reduce((s, c) => s + c.amount, 0);
   let h = '<div class="stats">' + stat('چک/قسط دریافتنی', fmt(rec), rec ? 'credit' : 'zero') + stat('چک/قسط پرداختنی', fmt(pay), pay ? 'debit' : 'zero') + '</div>' + chips('chqTab', UI.chqTab, [['open', 'در انتظار'], ['done', 'انجام‌شده']]);
-  h += list.length ? '<div class="card flush">' + list.slice(0, UI.limChq).map(c => { const st = Core.chequeStatus(c, t), dd = Core.diffDays(t, c.dueDate); return '<div class="row static"><span><b>' + (c.kind === 'cheque' ? '🧾 ' : '📆 ') + esc(c.title) + '</b><small>' + (c.personId ? esc(personName(c.personId)) + ' · ' : '') + (c.direction === 'receive' ? 'دریافتی' : 'پرداختی') + ' · ' + fmtDate(c.dueDate) + (st === 'overdue' ? ' · <u class="debit">' + fa(-dd) + ' روز گذشته</u>' : st === 'soon' ? ' · ' + (dd === 0 ? 'امروز' : fa(dd) + ' روز دیگر') : '') + '</small></span><span class="end"><em>' + fmt(c.amount) + '</em>' + (c.done ? '<button class="mini" data-act="chqReopen" data-id="' + c.id + '">بازگردانی</button>' : '<button class="mini ok" data-act="chqDone" data-id="' + c.id + '">انجام شد</button>') + '<button class="mini" data-act="chqDel" data-id="' + c.id + '">حذف</button></span></div>'; }).join('') + '</div>' + moreBtn('limChq', Math.min(UI.limChq, list.length), list.length) : empty('📆', UI.chqTab === 'open' ? 'موردی در انتظار نیست.' : 'موردی انجام نشده است.', '<button class="btn blue" data-act="addCheque">+ ثبت چک / قسط</button>');
+  h += list.length ? '<div class="card flush">' + list.slice(0, UI.limChq).map(c => { const st = Core.chequeStatus(c, t), dd = Core.diffDays(t, c.dueDate); return '<div class="row static"><span><b>' + (c.kind === 'cheque' ? '🧾 ' : '📆 ') + esc(c.title) + '</b><small>' + (c.personId ? esc(personName(c.personId)) + ' · ' : '') + (c.direction === 'receive' ? 'دریافتی' : 'پرداختی') + ' · ' + fmtDate(c.dueDate) + (st === 'overdue' ? ' · <u class="debit">' + fa(-dd) + ' روز گذشته</u>' : st === 'soon' ? ' · ' + (dd === 0 ? 'امروز' : fa(dd) + ' روز دیگر') : '') + '</small></span><span class="end"><em>' + fmt(c.amount) + '</em>' + (c.done ? '<button class="mini" data-act="chqReopen" data-id="' + c.id + '">بازگردانی</button>' : '<button class="mini ok" data-act="chqDone" data-id="' + c.id + '">انجام شد</button>') + '<button class="mini" data-act="chqEdit" data-id="' + c.id + '">ویرایش</button><button class="mini" data-act="chqDel" data-id="' + c.id + '">حذف</button></span></div>'; }).join('') + '</div>' + moreBtn('limChq', Math.min(UI.limChq, list.length), list.length) : empty('📆', UI.chqTab === 'open' ? 'موردی در انتظار نیست.' : 'موردی انجام نشده است.', '<button class="btn blue" data-act="addCheque">+ ثبت چک / قسط</button>');
   return { title: 'چک و اقساط', html: h, fab: ['addCheque', '+'], back: '#/more' };
 }
-function chequeForm() {
-  let pid = null;
-  const sh = sheet('ثبت چک / قسط', '<form id="cf"><div class="row2"><label class="fld"><span>نوع</span><select class="inp" name="kind"><option value="cheque">چک</option><option value="installment">قسط</option></select></label><label class="fld"><span>جهت</span><select class="inp" name="dir"><option value="receive">دریافتی (از شخص)</option><option value="pay">پرداختی (به شخص)</option></select></label></div><label class="fld"><span>شخص (اختیاری)</span><button type="button" class="inp pick" id="cf-p">انتخاب…</button></label><label class="fld"><span>عنوان / شماره چک</span><input class="inp" name="title"></label>' + moneyField('amount', 0, 'مبلغ') + dateField('due', today(), 'تاریخ سررسید') + '<label class="fld"><span>یادداشت</span><input class="inp" name="note"></label><button class="btn blue" type="submit">ثبت</button></form>');
+function chequeForm(c) {
+  let pid = c ? c.personId : null;
+  const sh = sheet(c ? 'ویرایش چک / قسط' : 'ثبت چک / قسط', '<form id="cf"><div class="row2"><label class="fld"><span>نوع</span><select class="inp" name="kind"><option value="cheque">چک</option><option value="installment">قسط</option></select></label><label class="fld"><span>جهت</span><select class="inp" name="dir"><option value="receive">دریافتی (از شخص)</option><option value="pay">پرداختی (به شخص)</option></select></label></div><label class="fld"><span>شخص (اختیاری)</span><button type="button" class="inp pick" id="cf-p">' + esc(pid ? personName(pid) : 'انتخاب…') + '</button></label><label class="fld"><span>عنوان / شماره چک</span><input class="inp" name="title" value="' + esc(c ? c.title : '') + '"></label>' + moneyField('amount', c ? c.amount : 0, 'مبلغ') + dateField('due', c ? c.dueDate : today(), 'تاریخ سررسید') + '<label class="fld"><span>یادداشت</span><input class="inp" name="note" value="' + esc(c ? c.note : '') + '"></label><button class="btn blue" type="submit">' + (c ? 'ذخیره تغییرات' : 'ثبت') + '</button></form>');
+  if (c) { sh.q('[name=kind]').value = c.kind; sh.q('[name=dir]').value = c.direction; }
   sh.q('#cf-p').onclick = () => pickList('انتخاب شخص', personItems(), v => { pid = +v; sh.q('#cf-p').textContent = personName(pid); });
-  const f = sh.q('#cf'); f.onsubmit = async e => { e.preventDefault(); const due = readDate(f, 'due'), amount = Core.parseMoney(f.amount.value); if (!due) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); if (await done(Core.addCheque(S, { kind: f.kind.value, direction: f.dir.value, personId: pid, title: f.title.value, amount, dueDate: due, note: f.note.value }), 'ثبت شد.')) sh.close(); };
+  const f = sh.q('#cf'); f.onsubmit = async e => { e.preventDefault(); const due = readDate(f, 'due'), amount = Core.parseMoney(f.amount.value); if (!due) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); const dd = { kind: f.kind.value, direction: f.dir.value, personId: pid, title: f.title.value, amount, dueDate: due, note: f.note.value }; if (await done(c ? Core.editCheque(S, c.id, dd) : Core.addCheque(S, dd), c ? 'اصلاح شد.' : 'ثبت شد.')) sh.close(); };
 }
 
 /* ─────────── EXPENSES ─────────── */
@@ -288,14 +311,15 @@ function expenseForm(e) {
 }
 
 /* ─────────── REPORTS ─────────── */
-function repRange() { if (UI.rep === 'custom') return { from: UI.repFrom, to: UI.repTo }; return Core.periodRange(UI.rep); }
+function repRange() { if (UI.rep === 'custom') return { from: UI.repFrom, to: UI.repTo }; return Core.periodRange(UI.rep, today(), fyMonth()); }
 function pageReports() {
   const { from, to } = repRange(), r = Core.report(S, from, to), cs = Core.cashSummary(S, from, to), rp = Core.receivablePayable(S);
   const row = (l, v, c, b) => '<div class="rr' + (b ? ' b' : '') + '"><span>' + l + '</span><b class="' + (c || '') + '">' + fmt(v) + '</b></div>';
-  let h = chips('rep', UI.rep, [['today', 'امروز'], ['week', 'این هفته'], ['month', 'این ماه'], ['year', 'امسال'], ['all', 'همه'], ['custom', 'دلخواه']]);
+  let h = chips('rep', UI.rep, [['today', 'امروز'], ['yesterday', 'دیروز'], ['mtd', 'از اول ماه'], ['fytd', 'از اول سال مالی'], ['all', 'همه'], ['custom', 'دلخواه']]);
   if (UI.rep === 'custom') h += '<div class="card row2f">' + dateField('rf', UI.repFrom || today(), 'از') + dateField('rt', UI.repTo || today(), 'تا') + '<button class="btn blue sm" data-act="repApply">اعمال</button></div>';
   h += '<div class="hint center">' + (from ? fmtDate(from) : 'ابتدا') + ' تا ' + (to ? fmtDate(to) : 'امروز') + '</div>';
   h += '<div class="card"><div class="ch">سود و زیان</div>' + row('فروش', r.sales) + (r.saleReturns ? row('کسر: برگشت از فروش', r.saleReturns, 'debit') : '') + row('فروش خالص', r.revenue, '', 1) + row('کسر: بهای تمام‌شده کالای فروش‌رفته', r.cogs, 'debit') + (r.adjLoss ? row('کسر: ضایعات / تعدیل انبار', r.adjLoss, 'debit') : '') + row('سود ناخالص', r.gross, r.gross < 0 ? 'debit' : 'credit', 1) + row('کسر: هزینه‌ها', r.expenses, 'debit') + row('سود خالص', r.net, r.net < 0 ? 'debit' : 'credit', 1) + (r.discounts ? '<p class="hint">تخفیف‌های فروش در همین دوره: ' + fmt(r.discounts) + ' (در فروش خالص لحاظ شده)</p>' : '') + '</div>';
+  if (r.vatOut || r.vatIn) h += '<div class="card"><div class="ch">ارزش افزوده</div>' + row('ارزش افزوده فروش (دریافتی از مشتری)', r.vatOut) + row('ارزش افزوده خرید (پرداختی)', r.vatIn) + row('خالص ارزش افزوده قابل پرداخت', r.vatNet, r.vatNet > 0 ? 'debit' : 'credit', 1) + '<p class="hint">ارزش افزوده جزو درآمد یا هزینه نیست و در سود و زیان حساب نشده است.</p></div>';
   h += '<div class="card"><div class="ch">گردش وجه نقد و بانک</div>' + row('دریافت‌ها', cs.in, 'credit') + row('پرداخت‌ها و هزینه‌ها', cs.out, 'debit') + row('خالص گردش', cs.net, cs.net < 0 ? 'debit' : 'credit', 1) + '<div class="rr sub"><span>نقد</span><b>' + fmt(cs.byMethod.cash) + '</b></div><div class="rr sub"><span>کارت/بانک</span><b>' + fmt(cs.byMethod.bank) + '</b></div><div class="rr sub"><span>چک</span><b>' + fmt(cs.byMethod.cheque) + '</b></div><div class="rr b"><span>موجودی فعلی صندوق/بانک</span><b>' + fmt(Core.cashBalance(S)) + '</b></div></div>';
   h += '<div class="card"><div class="ch">وضعیت کلی (تا امروز)</div>' + row('مطالبات از مشتریان', rp.receivable, 'debit') + row('بدهی به دیگران', rp.payable, 'credit') + row('ارزش موجودی انبار', Core.inventoryValue(S)) + row('خرید در دوره', r.purchases) + '</div>';
   const tc = Core.topPeople(S, 'sale', from, to, 5), tp = Core.topProducts(S, from, to, 5);
@@ -324,7 +348,7 @@ function aboutCard() {
 }
 function pageSettings() {
   const days = S.settings.lastBackup ? Core.diffDays(S.settings.lastBackup, today()) : null;
-  let h = '<form class="card" id="setf"><label class="fld"><span>نام کسب‌وکار (روی گزارش‌ها)</span><input class="inp" name="business" value="' + esc(S.settings.business) + '"></label>' + moneyField('openingCash', S.settings.openingCash, 'موجودی اولیه صندوق/بانک') + '<button class="btn blue" type="submit">ذخیره تنظیمات</button></form>';
+  let h = '<form class="card" id="setf"><label class="fld"><span>نام کسب‌وکار (روی گزارش‌ها)</span><input class="inp" name="business" value="' + esc(S.settings.business) + '"></label>' + moneyField('openingCash', S.settings.openingCash, 'موجودی اولیه صندوق/بانک') + '<div class="row2"><label class="fld"><span>درصد ارزش افزوده</span><input class="inp ltr" name="vatRate" inputmode="decimal" value="' + fa(vatRateSet()) + '"></label><label class="fld"><span>شروع سال مالی</span><select class="inp" name="fyMonth">' + Core.MONTHS.map((m, i) => '<option value="' + (i + 1) + '"' + (i + 1 === fyMonth() ? ' selected' : '') + '>۱ ' + m + '</option>').join('') + '</select></label></div><p class="hint">درصد ارزش افزوده روی فاکتورهای جدید اعمال می‌شود؛ فاکتورهای قبلی با همان درصد خودشان می‌مانند.</p><button class="btn blue" type="submit">ذخیره تنظیمات</button></form>';
   const st = S.settings, th = st.theme || 'auto', ac = st.accent || 'blue', fs = Number(st.fontScale) || 1;
   h += '<div class="card"><div class="ch">🎨 ظاهر برنامه</div><div class="seg">' + [['light', '☀️ روز'], ['dark', '🌙 شب'], ['auto', '📱 خودکار']].map(x => '<button type="button" class="' + (th === x[0] ? 'on' : '') + '" data-act="setTheme" data-v="' + x[0] + '">' + x[1] + '</button>').join('') + '</div><div class="sw">' + Object.keys(ACCENTS).map(k => '<button type="button" title="' + ACCENTS[k][2] + '" class="' + (ac === k ? 'on' : '') + '" style="background:' + ACCENTS[k][0] + '" data-act="setAccent" data-v="' + k + '"></button>').join('') + '</div><div class="fsr"><button type="button" data-act="fontStep" data-v="-1">A−</button><span class="v">اندازه نوشته: ' + fa(Math.round(fs * 100)) + '٪</span><button type="button" data-act="fontStep" data-v="1">A+</button></div><button type="button" class="lnk center" data-act="fontStep" data-v="0">بازگشت به اندازه عادی</button></div>';
   h += '<div class="card"><div class="ch">💾 پشتیبان‌گیری</div><p class="hint">' + (days === null ? 'هنوز پشتیبان نگرفته‌اید.' : 'آخرین پشتیبان: ' + fmtDate(S.settings.lastBackup) + ' (' + fa(days) + ' روز پیش)') + '</p><p class="hint">اطلاعات فقط روی همین گوشی است. با حذف برنامه یا پاک‌کردن اطلاعات مرورگر از بین می‌رود؛ پس مرتب پشتیبان بگیرید و فایل را برای خودتان (مثلاً تلگرام/Drive) بفرستید.</p><div class="row2"><button class="btn green" data-act="backup">دریافت پشتیبان</button><button class="btn ghost" data-act="restore">بازیابی از فایل</button></div><input type="file" id="restore-file" accept=".json,application/json" hidden></div>';
@@ -336,7 +360,7 @@ function pageSettings() {
   h += '<div class="card"><div class="ch">🛠 گزارش خطا</div><p class="hint">اگر برنامه درست کار نکرد یا بسته شد، این گزارش را برای پشتیبانی بفرستید. فقط اطلاعات فنی (نسخه، گوشی، متن خطا) فرستاده می‌شود؛ نام اشخاص و مبالغ در آن نیست.</p><p class="hint">خطاهای ثبت‌شده: <b>' + fa(errN) + '</b></p><div class="row2"><button class="btn green" data-act="reportWa">ارسال در واتساپ</button><button class="btn ghost" data-act="reportShare">کپی / ارسال</button></div>' + (errN ? '<button class="lnk center" data-act="reportClear">پاک‌کردن خطاهای ثبت‌شده</button>' : '') + '</div>';
   h += '<div class="card"><div class="ch">🔎 بررسی سلامت اطلاعات</div><p class="hint">صحت ارتباط تراکنش‌ها، فاکتورها و موجودی انبار را بررسی می‌کند.</p><button class="btn ghost" data-act="audit">اجرای بررسی</button></div>';
   h += '<div class="card"><div class="ch">⚠️ حذف همه اطلاعات</div><button class="btn red" data-act="wipe">پاک‌کردن کامل برنامه</button></div><p class="hint center">تعداد: ' + fa(S.people.length) + ' شخص · ' + fa(S.products.length) + ' کالا · ' + fa(S.invoices.length) + ' فاکتور · ' + fa(S.tx.length) + ' تراکنش</p>';
-  return { title: 'تنظیمات', html: h, back: '#/more', mount: () => { $('#setf').onsubmit = async e => { e.preventDefault(); const f = e.target, oc = f.openingCash.value.trim() === '' ? 0 : Core.parseMoney(f.openingCash.value); if (isNaN(oc)) return toast('مبلغ نامعتبر است.', true); S.settings.business = f.business.value.trim(); S.settings.openingCash = oc; await save(); toast('ذخیره شد.'); render(); }; $('#restore-file').onchange = restoreFile; } };
+  return { title: 'تنظیمات', html: h, back: '#/more', mount: () => { $('#setf').onsubmit = async e => { e.preventDefault(); const f = e.target, oc = f.openingCash.value.trim() === '' ? 0 : Core.parseMoney(f.openingCash.value); if (isNaN(oc)) return toast('مبلغ نامعتبر است.', true); const vr = Core.parseNum(f.vatRate.value || '0'); if (isNaN(vr) || vr < 0 || vr > 100) return toast('درصد ارزش افزوده نامعتبر است.', true); S.settings.business = f.business.value.trim(); S.settings.openingCash = oc; S.settings.vatRate = vr; S.settings.fyMonth = +f.fyMonth.value || 1; await save(); toast('ذخیره شد.'); render(); }; $('#restore-file').onchange = restoreFile; } };
 }
 async function doBackup() { const ok = await exportFile('fixquick-backup-' + stamp() + '.json', Core.exportJSON(S), 'application/json'); if (ok) { S.settings.lastBackup = today(); await save(); toast('پشتیبان آماده شد.'); render(); } }
 async function restoreFile(e) {
@@ -386,9 +410,10 @@ const actions = {
   pickInvPerson: () => pickList('انتخاب شخص', personItems(), v => { $('#nf [name=pid]').value = v; $('#nf-p').textContent = personName(+v); }, { addNew: 'شخص جدید', onAdd: () => personFormInline() }),
   pickProd: (d, el) => {
     const type = $('#nf [name=type]').value, row = el.closest('.it-row');
-    const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); } const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice(); };
+    const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); } const stk = Core.replay(S).stock[p.id], have = stk ? stk.stock : 0; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(have) + ' ' + p.unit; $('.stk', row).classList.toggle('debit', have <= 0); if (have <= 0 && (type === 'sale' || type === 'purchase_return')) toast('«' + p.name + '» موجودی ندارد؛ فاکتور بدون موجودی ثبت نمی‌شود.', true); calcInvoice(); };
     pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', onAdd: () => productForm(null, { inInvoice: true, onSaved: fill }) });
   },
+  plGo: d => { UI.rep = d.k; goHash('#/reports'); },
   more: d => { UI[d.k] += { limInv: 100, limProd: 100, limLedger: 200 }[d.k] || 150; render(); },
   bulkProducts: () => bulkProducts(), bulkPeople: () => bulkPeople(),
   scanProd: () => openScanner({ title: 'اسکن کالا', onCode: t => { const p = findProductByCode(t); if (p) prodOpen(p.id); else confirmBox('کالایی با کد «' + t + '» پیدا نشد. کالای جدید با این بارکد ساخته شود؟', 'ساخت کالا').then(y => { if (y) productForm(null, { barcode: t }); }); } }),
@@ -403,18 +428,19 @@ const actions = {
   printInv: d => printInvoice(+d.id),
   addRow: () => { addRow(); calcInvoice(); }, rmRow: (d, el) => { if ($$('.it-row').length > 1) { el.closest('.it-row').remove(); calcInvoice(); } },
   payFull: () => { const f = $('#nf'); f.paid.value = fa(Core.group(+f.dataset.total || 0)); calcInvoice(); },
-  payInv: d => { const i = Core.byId(S.invoices, +d.id), info = Core.invoiceInfo(S, i); const isRec = i.type === 'sale' || i.type === 'purchase_return'; txForm(isRec ? 'receipt' : 'payment', i.personId); setTimeout(() => { const f = $('#tf'); f.amount.value = fa(Core.group(info.remaining)); f.desc.value = 'تسویه فاکتور ' + fa(i.no); }, 30); },
+  payInv: d => { const i = Core.byId(S.invoices, +d.id), info = Core.invoiceInfo(S, i); const isRec = i.type === 'sale' || i.type === 'purchase_return'; txForm(isRec ? 'receipt' : 'payment', i.personId, null, { ref: i.id }); setTimeout(() => { const f = $('#tf'); f.amount.value = fa(Core.group(info.remaining)); f.desc.value = 'تسویه فاکتور ' + fa(i.no); }, 30); },
   shareInv: d => shareText(invoiceText(Core.byId(S.invoices, +d.id))),
   delInv: async d => { const i = Core.byId(S.invoices, +d.id); if (await confirmBox('فاکتور ' + fa(i.no) + ' و همه پرداخت‌های ثبت‌شده‌اش حذف شود؟ اثر آن روی حساب و انبار برگردانده می‌شود.', 'حذف فاکتور', true)) { const r = Core.deleteInvoice(S, i.id); if (r.ok) { await save(); toast('حذف شد.'); goHash('#/invoices'); } else toast(r.error, true); } },
   addProduct: () => productForm(), prodOpen: d => prodOpen(+d.id),
   addCheque: () => chequeForm(),
   chqDone: async d => { const c = Core.byId(S.cheques, +d.id); const sh = sheet('انجام شد', '<p class="msg">' + esc(c.title) + ' — ' + fmt(c.amount) + ' ریال</p>' + (c.personId ? '<button class="btn blue" data-rec>ثبت در حساب ' + esc(personName(c.personId)) + ' (' + (c.direction === 'receive' ? 'دریافت' : 'پرداخت') + ')</button>' : '') + '<button class="btn ghost" data-only>فقط علامت‌گذاری (بدون ثبت در حساب)</button>'); const go = async rec => { sh.close(); await done(Core.completeCheque(S, c.id, rec, today()), 'ثبت شد.'); }; const r = sh.q('[data-rec]'); if (r) r.onclick = () => go(true); sh.q('[data-only]').onclick = () => go(false); },
   chqReopen: async d => { await done(Core.reopenCheque(S, +d.id), 'بازگردانده شد.'); },
+  chqEdit: d => chequeForm(Core.byId(S.cheques, +d.id)),
   chqDel: async d => { if (await confirmBox('این مورد حذف شود؟', 'حذف', true)) await done(Core.deleteCheque(S, +d.id), 'حذف شد.'); },
   addExpense: () => { if (gate()) expenseForm(); }, expOpen: d => expenseForm(Core.byId(S.expenses, +d.id)),
   repApply: () => { const f = readDate(document, 'rf'), t = readDate(document, 'rt'); if (!f || !t) return toast('تاریخ نامعتبر است.', true); if (f > t) return toast('تاریخ شروع بعد از پایان است.', true); UI.repFrom = f; UI.repTo = t; render(); },
   csvPeople: async () => { const b = Core.balances(S); await exportFile('balances-' + stamp() + '.csv', csvFile([['نام', 'تلفن', 'مانده', 'وضعیت']].concat(S.people.map(p => [p.name, p.phone, Math.abs(b[p.id]), sign(b[p.id])]))), 'text/csv'); },
-  csvInvoices: async () => { await exportFile('invoices-' + stamp() + '.csv', csvFile([['شماره', 'نوع', 'شخص', 'تاریخ', 'جمع', 'تخفیف', 'پرداخت‌شده', 'مانده', 'توضیحات / سریال']].concat(S.invoices.map(i => { const n = Core.invoiceInfo(S, i); return [i.no, Core.TYPE_FA[i.type], personName(i.personId), Core.isoToJalali(i.date), n.total, n.discount, n.paid, n.remaining, invNotes(i).join(' | ')]; }))), 'text/csv'); },
+  csvInvoices: async () => { await exportFile('invoices-' + stamp() + '.csv', csvFile([['شماره', 'نوع', 'شخص', 'تاریخ', 'جمع', 'تخفیف', 'ارزش افزوده', 'پرداخت‌شده', 'مانده', 'توضیحات / سریال']].concat(S.invoices.map(i => { const n = Core.invoiceInfo(S, i); return [i.no, Core.TYPE_FA[i.type], personName(i.personId), Core.isoToJalali(i.date), n.total, n.discount, n.vat, n.paid, n.remaining, invNotes(i).join(' | ')]; }))), 'text/csv'); },
   csvLedger: async () => { await exportFile('ledger-' + stamp() + '.csv', csvFile([['تاریخ', 'شخص', 'شرح', 'اضافه', 'کم']].concat(S.tx.slice().sort((a, b) => a.date < b.date ? -1 : 1).map(t => [Core.isoToJalali(t.date), personName(t.personId), t.desc, t.kind === 'debit' ? t.amount : '', t.kind === 'credit' ? t.amount : '']))), 'text/csv'); },
   toggleBio: () => toggleBio(), changePass: () => changePass(), newCode: () => newCode(), logout: () => authGate(),
   backup: () => doBackup(), restore: () => $('#restore-file').click(), setPin: () => setPin(),
@@ -432,10 +458,10 @@ function personFormInline() { // quick-add from invoice picker
 
 /* ─────────── router / shell ─────────── */
 const routes = {
-  home: pageHome, people: pagePeople, person: pagePerson, invoices: pageInvoices, inv: pageInvoice, new: (a) => pageNewInvoice(a, Object.fromEntries(new URLSearchParams((location.hash.split('?')[1]) || ''))),
+  home: pageHome, people: pagePeople, person: pagePerson, invoices: pageInvoices, inv: pageInvoice, edit: (a) => { const i = Core.byId(S.invoices, +a); return i ? pageNewInvoice(i.type, { edit: i }) : { title: 'ویرایش', html: empty('❓', 'فاکتور پیدا نشد.'), back: '#/invoices' }; }, new: (a) => pageNewInvoice(a, Object.fromEntries(new URLSearchParams((location.hash.split('?')[1]) || ''))),
   products: pageProducts, kardex: pageKardex, cheques: pageCheques, expenses: pageExpenses, reports: pageReports, more: pageMore, settings: pageSettings
 };
-const navMap = { home: 'home', people: 'people', person: 'people', invoices: 'invoices', inv: 'invoices', new: 'invoices', products: 'products', kardex: 'products', more: 'more', cheques: 'more', expenses: 'more', reports: 'more', settings: 'more' };
+const navMap = { home: 'home', people: 'people', person: 'people', invoices: 'invoices', inv: 'invoices', edit: 'invoices', new: 'invoices', products: 'products', kardex: 'products', more: 'more', cheques: 'more', expenses: 'more', reports: 'more', settings: 'more' };
 let lastRoute = '';
 function render() {
   const hash = (location.hash || '#/home').split('?')[0]; const [, page, arg] = hash.split('/'); const fn = routes[page] || routes.home;
@@ -607,7 +633,7 @@ function putProductInRow(p) {
   let row = rows.find(r => !r.dataset.pid); if (!row) { addRow(); const all = $$('.it-row'); row = all[all.length - 1]; }
   row.dataset.pid = p.id; $('.pick', row).textContent = p.name; const pr = $('[name=price]', row);
   if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); }
-  const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice();
+  const stk = Core.replay(S).stock[p.id], have = stk ? stk.stock : 0; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(have) + ' ' + p.unit; $('.stk', row).classList.toggle('debit', have <= 0); if (have <= 0 && (type === 'sale' || type === 'purchase_return')) toast('«' + p.name + '» موجودی ندارد.', true); calcInvoice();
 }
 
 /* ─────────── free limit & unlimited version ─────────── */

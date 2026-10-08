@@ -113,9 +113,12 @@
   Core.addDays = function (iso, n) { const [y, m, d] = iso.split('-').map(Number); const g = d2g(g2d(y, m, d) + n); return g.gy + '-' + pad2(g.gm) + '-' + pad2(g.gd); };
   Core.diffDays = function (a, b) { const [y1, m1, d1] = a.split('-').map(Number), [y2, m2, d2] = b.split('-').map(Number); return g2d(y2, m2, d2) - g2d(y1, m1, d1); };
   // period helpers (Jalali based) → {from,to}
-  Core.periodRange = function (kind, todayIso) {
+  Core.periodRange = function (kind, todayIso, fyMonth) {
     const t = todayIso || Core.todayISO(); const p = Core.isoToParts(t);
     if (kind === 'today') return { from: t, to: t };
+    if (kind === 'yesterday') { const y = Core.addDays(t, -1); return { from: y, to: y }; }
+    if (kind === 'mtd') return { from: Core.partsToIso(p.jy, p.jm, 1), to: t };
+    if (kind === 'fytd') { const fm = Math.min(12, Math.max(1, +fyMonth || 1)), y = p.jm >= fm ? p.jy : p.jy - 1; return { from: Core.partsToIso(y, fm, 1), to: t }; }
     if (kind === 'week') { const w = Core.weekdayIdx(t); const from = Core.addDays(t, -w); return { from, to: Core.addDays(from, 6) }; }
     if (kind === 'month') return { from: Core.partsToIso(p.jy, p.jm, 1), to: Core.partsToIso(p.jy, p.jm, Core.monthLenJ(p.jy, p.jm)) };
     if (kind === 'year') return { from: Core.partsToIso(p.jy, 1, 1), to: Core.partsToIso(p.jy, 12, Core.monthLenJ(p.jy, 12)) };
@@ -236,6 +239,24 @@
     return ok();
   };
 
+  Core.editTransfer = function (st, group, d) {
+    const pair = st.tx.filter(t => t.type === 'transfer' && t.group === group); if (pair.length !== 2) return err('حواله پیدا نشد.');
+    if (!byId(st.people, d.fromId) || !byId(st.people, d.toId)) return err('هر دو شخص را انتخاب کنید.');
+    if (d.fromId === d.toId) return err('مبدأ و مقصد نمی‌تواند یکی باشد.');
+    if (!(d.amount > 0) || !Number.isInteger(d.amount) || d.amount > MAX_MONEY) return err('مبلغ نامعتبر است.');
+    const de = checkDate(d.date); if (de) return err(de);
+    const a = byId(st.people, d.fromId).name, b = byId(st.people, d.toId).name, note = d.desc ? ' - ' + String(d.desc).trim() : '';
+    const out = pair.find(t => t.kind === 'credit'), inn = pair.find(t => t.kind === 'debit');
+    Object.assign(out, { personId: d.fromId, amount: d.amount, date: d.date, desc: 'حواله به ' + b + note });
+    Object.assign(inn, { personId: d.toId, amount: d.amount, date: d.date, desc: 'حواله از ' + a + note });
+    return ok();
+  };
+  Core.transferInfo = function (st, group) {
+    const pair = st.tx.filter(t => t.type === 'transfer' && t.group === group); const out = pair.find(t => t.kind === 'credit'), inn = pair.find(t => t.kind === 'debit');
+    if (!out || !inn) return null; const m = (out.desc || '').match(/ - (.*)$/);
+    return { fromId: out.personId, toId: inn.personId, amount: out.amount, date: out.date, desc: m ? m[1] : '' };
+  };
+
   /* ───────────── products ───────────── */
   Core.addProduct = function (st, d) {
     const name = String(d.name || '').trim(); if (!name) return err('نام کالا را وارد کنید.');
@@ -268,7 +289,8 @@
       const share = i === lines.length - 1 ? left : (sub ? Math.round(discount * l.gross / sub) : 0);
       l.discount = Math.min(share, l.gross); left -= l.discount; l.net = l.gross - l.discount;
     });
-    return { sub, discount, total: sub - discount, lines };
+    const vatRate = Math.max(0, Number(inv.vatRate) || 0), vat = Math.round((sub - discount) * vatRate / 100);
+    return { sub, discount, vatRate, vat, total: sub - discount + vat, lines };
   };
 
   // Chronological replay with moving weighted-average cost.
@@ -349,7 +371,8 @@
     if (!Number.isInteger(discount) || discount < 0) return err('تخفیف نامعتبر است.');
     const no = String(d.no || '').trim() || Core.nextInvoiceNo(st);
     if (st.invoices.some(i => i.no === no && i.type === d.type)) return err('شماره فاکتور تکراری است.');
-    const inv = { id: nid(st), no, type: d.type, personId: d.personId, date: d.date, items, discount, note: String(d.note || '').trim() };
+    const vr = Number(d.vatRate) || 0; if (!(vr >= 0 && vr <= 100)) return err('درصد ارزش افزوده نامعتبر است.');
+    const inv = { id: nid(st), no, type: d.type, personId: d.personId, date: d.date, items, discount, note: String(d.note || '').trim() }; if (vr > 0) inv.vatRate = vr;
     const tot = Core.invoiceTotals(inv);
     if (tot.total <= 0 && tot.sub <= 0) return err('جمع فاکتور صفر است.');
     if (discount > tot.sub) return err('تخفیف از جمع فاکتور بیشتر است.');
@@ -360,9 +383,52 @@
     if (rp.errors.length) { st.invoices.pop(); st.seq = inv.id; return err(stockErrText(st, rp.errors[0])); }
     const label = Core.TYPE_FA[inv.type] + ' - فاکتور ' + no;
     st.tx.push({ id: nid(st), personId: inv.personId, kind: INV_KIND[inv.type], amount: tot.total, type: 'invoice', desc: label, date: inv.date, ref: inv.id, group: null, method: null });
-    if (paid > 0) st.tx.push({ id: nid(st), personId: inv.personId, kind: PAY_KIND[inv.type], amount: paid, type: (PAY_KIND[inv.type] === 'credit' ? 'receipt' : 'payment'), desc: 'تسویه همزمان - فاکتور ' + no, date: inv.date, ref: inv.id, group: null, method: METHODS[d.method] ? d.method : 'cash' });
+    if (paid > 0) st.tx.push({ id: nid(st), personId: inv.personId, kind: PAY_KIND[inv.type], amount: paid, type: (PAY_KIND[inv.type] === 'credit' ? 'receipt' : 'payment'), desc: 'تسویه همزمان - فاکتور ' + no, date: inv.date, ref: inv.id, group: null, initPay: true, method: METHODS[d.method] ? d.method : 'cash' });
     return ok({ invoice: inv });
   };
+  // edit an invoice in place (same id and number): items, person, date, discount, VAT, first payment.
+  // Stock, balances and profit are recalculated from the data, so the change flows everywhere.
+  Core.editInvoice = function (st, id, d) {
+    const old = byId(st.invoices, id); if (!old) return err('فاکتور پیدا نشد.');
+    if (!byId(st.people, d.personId)) return err('شخص را انتخاب کنید.');
+    const de = checkDate(d.date); if (de) return err(de);
+    if (!d.items || !d.items.length) return err('حداقل یک قلم کالا لازم است.');
+    const items = [];
+    for (const l of d.items) {
+      if (!byId(st.products, l.productId)) return err('کالای انتخاب‌شده معتبر نیست.');
+      if (!(l.qty > 0)) return err('تعداد باید بزرگ‌تر از صفر باشد.');
+      if (!Number.isInteger(l.price) || l.price < 0 || l.price > MAX_MONEY) return err('قیمت واحد نامعتبر است.');
+      items.push({ productId: l.productId, qty: r3(l.qty), price: l.price, note: String(l.note || '').trim().slice(0, 500) });
+    }
+    const discount = d.discount || 0; if (!Number.isInteger(discount) || discount < 0) return err('تخفیف نامعتبر است.');
+    const vr = Number(d.vatRate) || 0; if (!(vr >= 0 && vr <= 100)) return err('درصد ارزش افزوده نامعتبر است.');
+    const no = String(d.no || '').trim() || old.no;
+    if (st.invoices.some(i => i.id !== id && i.no === no && i.type === old.type)) return err('شماره فاکتور تکراری است.');
+    const inv = { id, no, type: old.type, personId: d.personId, date: d.date, items, discount, note: String(d.note || '').trim() }; if (vr > 0) inv.vatRate = vr;
+    const tot = Core.invoiceTotals(inv);
+    if (tot.total <= 0 && tot.sub <= 0) return err('جمع فاکتور صفر است.');
+    if (discount > tot.sub) return err('تخفیف از جمع فاکتور بیشتر است.');
+    const linked = st.tx.filter(t => t.ref === id), main = linked.find(t => t.type === 'invoice');
+    const first = linked.find(t => t.type !== 'invoice' && (t.initPay || /^تسویه همزمان/.test(t.desc || '')));
+    const paid = d.paid || 0; if (!Number.isInteger(paid) || paid < 0) return err('مبلغ پرداخت/دریافت نامعتبر است.');
+    const otherPaid = linked.filter(t => t !== main && t !== first && (t.type === 'receipt' || t.type === 'payment')).reduce((s, t) => s + t.amount, 0);
+    if (paid + otherPaid > tot.total) return err('جمع پرداخت‌های این فاکتور (' + Core.fmt(paid + otherPaid) + ') از مبلغ جدید فاکتور بیشتر می‌شود.');
+    const bakInv = st.invoices;
+    st.invoices = st.invoices.map(i => i.id === id ? inv : i);
+    const rp = Core.replay(st);
+    if (rp.errors.length) { st.invoices = bakInv; return err('با این تغییر موجودی انبار منفی می‌شود. ' + stockErrText(st, rp.errors[0])); }
+    const label = Core.TYPE_FA[inv.type] + ' - فاکتور ' + no;
+    if (main) Object.assign(main, { personId: inv.personId, amount: tot.total, date: inv.date, desc: label });
+    else st.tx.push({ id: nid(st), personId: inv.personId, kind: INV_KIND[inv.type], amount: tot.total, type: 'invoice', desc: label, date: inv.date, ref: id, group: null, method: null });
+    linked.forEach(t => { if (t !== main) t.personId = inv.personId; });
+    if (paid > 0) {
+      const m = METHODS[d.method] ? d.method : (first && first.method) || 'cash';
+      if (first) Object.assign(first, { amount: paid, date: inv.date, method: m, desc: 'تسویه همزمان - فاکتور ' + no, initPay: true });
+      else st.tx.push({ id: nid(st), personId: inv.personId, kind: PAY_KIND[inv.type], amount: paid, type: (PAY_KIND[inv.type] === 'credit' ? 'receipt' : 'payment'), desc: 'تسویه همزمان - فاکتور ' + no, date: inv.date, ref: id, group: null, initPay: true, method: m });
+    } else if (first) st.tx = st.tx.filter(t => t !== first);
+    return ok({ invoice: inv });
+  };
+  Core.firstPayment = (st, id) => (txByRef(st).get(id) || []).find(t => t.type !== 'invoice' && (t.initPay || /^تسویه همزمان/.test(t.desc || ''))) || null;
   Core.deleteInvoice = function (st, id) {
     const inv = byId(st.invoices, id); if (!inv) return err('فاکتور پیدا نشد.');
     const bakInv = st.invoices, bakTx = st.tx;
@@ -419,6 +485,18 @@
     const c = { id: nid(st), kind: d.kind === 'installment' ? 'installment' : 'cheque', direction: d.direction === 'pay' ? 'pay' : 'receive', personId: d.personId || null, title, amount: d.amount, dueDate: d.dueDate, note: String(d.note || '').trim(), done: false, doneAt: null };
     st.cheques.push(c); return ok({ cheque: c });
   };
+  Core.editCheque = function (st, id, d) {
+    const c = byId(st.cheques, id); if (!c) return err('مورد پیدا نشد.');
+    const title = String(d.title || '').trim(); if (!title) return err('عنوان را وارد کنید.');
+    if (!(d.amount > 0) || !Number.isInteger(d.amount) || d.amount > MAX_MONEY) return err('مبلغ نامعتبر است.');
+    const de = checkDate(d.dueDate); if (de) return err(de);
+    if (d.personId && !byId(st.people, d.personId)) return err('شخص نامعتبر است.');
+    const tx = c.txId ? byId(st.tx, c.txId) : null;
+    if (tx && !d.personId) return err('این چک در حساب شخص ثبت شده است؛ شخص را خالی نگذارید.');
+    Object.assign(c, { kind: d.kind === 'installment' ? 'installment' : 'cheque', direction: d.direction === 'pay' ? 'pay' : 'receive', personId: d.personId || null, title, amount: d.amount, dueDate: d.dueDate, note: String(d.note || '').trim() });
+    if (tx) Object.assign(tx, { personId: c.personId, amount: c.amount, kind: c.direction === 'receive' ? 'credit' : 'debit', type: c.direction === 'receive' ? 'receipt' : 'payment', desc: (c.kind === 'cheque' ? 'چک' : 'قسط') + ' - ' + c.title });
+    return ok();
+  };
   Core.deleteCheque = function (st, id) { st.cheques = st.cheques.filter(c => c.id !== id); return ok(); };
   // mark done; optionally record the receipt/payment in the person's account
   Core.completeCheque = function (st, id, recordTx, date) {
@@ -443,16 +521,18 @@
   /* ───────────── reports ───────────── */
   const inRange = (d, from, to) => (!from || d >= from) && (!to || d <= to);
   Core.report = function (st, from, to) {
-    const rp = Core.replay(st); const r = { sales: 0, saleReturns: 0, purchases: 0, purchaseReturns: 0, cogs: 0, adjLoss: 0, expenses: 0, invoices: 0, discounts: 0 };
+    const rp = Core.replay(st); const r = { sales: 0, saleReturns: 0, purchases: 0, purchaseReturns: 0, cogs: 0, adjLoss: 0, expenses: 0, invoices: 0, discounts: 0, vatOut: 0, vatIn: 0 };
     for (const inv of st.invoices) {
       if (!inRange(inv.date, from, to)) continue; const t = Core.invoiceTotals(inv); r.invoices++;
-      if (inv.type === 'sale') { r.sales += t.total; r.discounts += t.discount; r.cogs += rp.cogs[inv.id] || 0; }
-      else if (inv.type === 'sale_return') { r.saleReturns += t.total; r.cogs += rp.cogs[inv.id] || 0; }
-      else if (inv.type === 'purchase') r.purchases += t.total;
-      else if (inv.type === 'purchase_return') { r.purchaseReturns += t.total; r.cogs += rp.cogs[inv.id] || 0; }
+      const ex = t.total - t.vat; // amounts without VAT (VAT is not income or cost)
+      if (inv.type === 'sale') { r.sales += ex; r.vatOut += t.vat; r.discounts += t.discount; r.cogs += rp.cogs[inv.id] || 0; }
+      else if (inv.type === 'sale_return') { r.saleReturns += ex; r.vatOut -= t.vat; r.cogs += rp.cogs[inv.id] || 0; }
+      else if (inv.type === 'purchase') { r.purchases += ex; r.vatIn += t.vat; }
+      else if (inv.type === 'purchase_return') { r.purchaseReturns += ex; r.vatIn -= t.vat; r.cogs += rp.cogs[inv.id] || 0; }
     }
     for (const a of st.adjusts) if (!a.opening && inRange(a.date, from, to)) r.adjLoss += rp.adjEffect[a.id] || 0;
     for (const e of st.expenses) if (inRange(e.date, from, to)) r.expenses += e.amount;
+    r.vatNet = r.vatOut - r.vatIn;
     r.revenue = r.sales - r.saleReturns; r.cogsTotal = r.cogs + r.adjLoss; r.gross = r.revenue - r.cogsTotal; r.net = r.gross - r.expenses;
     return r;
   };

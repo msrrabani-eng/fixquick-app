@@ -23,7 +23,7 @@ async function scanApply(c) { if (!Scan.track) return false; try { await Scan.tr
 
 // o: { title, hint, continuous, onCode(text) → true to keep scanning in continuous mode }
 async function openScanner(o) {
-  scanStop(); o = o || {};
+  scanStop(); o = o || {}; Scan.last = ''; Scan.lastAt = 0;
   const el = document.createElement('div'); el.id = 'scan';
   el.innerHTML = '<video playsinline muted autoplay></video><div class="sc-frame"><i></i></div><div class="sc-ring" hidden></div>' +
     '<div class="sc-top"><button type="button" class="sc-x" aria-label="بستن">✕</button><b>' + esc(o.title || 'اسکن کد') + '</b><span></span></div>' +
@@ -32,7 +32,7 @@ async function openScanner(o) {
   document.body.appendChild(el); document.body.classList.add('noscroll');
   const v = el.querySelector('video'), msg = el.querySelector('.sc-msg'), ring = el.querySelector('.sc-ring');
   el.querySelector('.sc-x').onclick = scanStop;
-  el.querySelector('[data-sc=type]').onclick = () => { const sh = sheet('وارد کردن کد', '<form id="scf"><input class="inp ltr" name="c" autocomplete="off" placeholder="کد یا بارکد"><button class="btn blue" type="submit">تأیید</button></form>'); sh.q('#scf').onsubmit = e => { e.preventDefault(); const t = e.target.c.value.trim(); sh.close(); if (t) hit(t); }; autoFocus(() => sh.q('[name=c]')); };
+  el.querySelector('[data-sc=type]').onclick = () => { let m = el.querySelector('.sc-man'); if (m) { m.remove(); return; } m = document.createElement('form'); m.className = 'sc-man'; m.innerHTML = '<input name="c" autocomplete="off" placeholder="کد یا بارکد"><button type="submit">تأیید</button>'; el.appendChild(m); m.c.focus(); m.onsubmit = e => { e.preventDefault(); const t = m.c.value.trim(); m.remove(); if (t) hit(t); }; };
   let facing = 'environment', torchOn = false;
   try { torchOn = localStorage.getItem('fq_torch') === '1'; } catch (e) { /* ignore */ }
 

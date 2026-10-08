@@ -62,7 +62,7 @@ async function drawInvoicePages(inv) {
     y += h;
   });
   // totals
-  const rows = [['جمع اقلام', fmt(info.sub) + ' ریال']]; if (info.discount) rows.push(['تخفیف', fmt(info.discount) + ' ریال']);
+  const rows = [['جمع اقلام', fmt(info.sub) + ' ریال']]; if (info.discount) rows.push(['تخفیف', fmt(info.discount) + ' ریال']); if (info.vat) rows.push(['ارزش افزوده ' + Core.toFa(info.vatRate) + '٪', fmt(info.vat) + ' ریال']);
   rows.push(['مبلغ نهایی', fmt(info.total) + ' ریال', true]); rows.push([isSaleSide ? 'دریافت‌شده' : 'پرداخت‌شده', fmt(info.paid) + ' ریال']); rows.push(['مانده', fmt(info.remaining) + ' ریال', true]);
   const need = rows.length * 48 + 40 + 150; if (y + need > limit()) newPage(false);
   y += 24; const bx = L, bw = 520;

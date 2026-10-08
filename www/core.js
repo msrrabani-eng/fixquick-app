@@ -128,7 +128,23 @@
     settings: { business: '', openingCash: 0, lastBackup: null }
   });
   const nid = st => st.seq++;
-  const byId = (arr, id) => arr.find(x => x.id === id);
+  // id lookups are indexed (large data: thousands of people/products/invoices); index rebuilt when the array changes
+  const idxCache = new WeakMap();
+  const byId = (arr, id) => {
+    let c = idxCache.get(arr);
+    if (!c || c.len !== arr.length) { const m = new Map(); for (const x of arr) m.set(x.id, x); c = { len: arr.length, m }; idxCache.set(arr, c); }
+    const x = c.m.get(id); if (x && x.id === id) return x;
+    if (x) { idxCache.delete(arr); return arr.find(y => y.id === id); }
+    return undefined;
+  };
+  // transactions grouped by invoice ref (for paid/remaining), cached per tx array
+  const refCache = new WeakMap();
+  const txByRef = st => {
+    let c = refCache.get(st.tx);
+    if (!c || c.len !== st.tx.length) { const m = new Map(); for (const t of st.tx) if (t.ref != null) { const a = m.get(t.ref); if (a) a.push(t); else m.set(t.ref, [t]); } c = { len: st.tx.length, m }; refCache.set(st.tx, c); }
+    return c.m;
+  };
+  Core.txByRef = txByRef;
   Core.byId = byId;
 
   const METHODS = { cash: 'نقد', bank: 'کارت/حواله بانکی', cheque: 'چک' };
@@ -254,7 +270,16 @@
   };
 
   // Chronological replay with moving weighted-average cost.
+  let replayCache = null;
   Core.replay = function (st, hook) {
+    if (!hook) {
+      const k = [st.invoices, st.invoices.length, st.invoices[st.invoices.length - 1], st.adjusts, st.adjusts.length, st.adjusts[st.adjusts.length - 1], st.products, st.products.length];
+      if (replayCache && replayCache.k.every((v, i) => v === k[i])) return replayCache.r;
+      const r = replayRaw(st); replayCache = { k, r }; return r;
+    }
+    return replayRaw(st, hook);
+  };
+  function replayRaw(st, hook) {
     const S = {}; const get = id => S[id] || (S[id] = { stock: 0, avg: 0 });
     const cogs = {}, adjEffect = {}, errors = [];
     const ev = [];
@@ -300,7 +325,7 @@
     }
     st.products.forEach(p => get(p.id));
     return { stock: S, cogs, adjEffect, errors };
-  };
+  }
   const stockErrText = (st, e) => { const p = byId(st.products, e.productId); return 'موجودی «' + (p ? p.name : '؟') + '» کافی نیست (موجودی: ' + Core.fmtQty(Math.max(e.have, 0)) + '، نیاز: ' + Core.fmtQty(e.need) + ').'; };
   Core.stockErrText = stockErrText;
 
@@ -346,7 +371,7 @@
   };
   Core.invoiceInfo = function (st, inv) {
     const tot = Core.invoiceTotals(inv);
-    const paid = st.tx.filter(t => t.ref === inv.id && (t.type === 'receipt' || t.type === 'payment')).reduce((s, t) => s + t.amount, 0);
+    const paid = (txByRef(st).get(inv.id) || []).filter(t => t.type === 'receipt' || t.type === 'payment').reduce((s, t) => s + t.amount, 0);
     return Object.assign({ paid, remaining: tot.total - paid }, tot);
   };
 
@@ -469,7 +494,7 @@
     st.invoices.forEach(i => {
       if (!byId(st.people, i.personId)) p.push('فاکتور بدون شخص: ' + i.no);
       i.items.forEach(l => { if (!byId(st.products, l.productId)) p.push('قلم بدون کالا در فاکتور ' + i.no); });
-      const main = st.tx.filter(t => t.ref === i.id && t.type === 'invoice'); const tot = Core.invoiceTotals(i).total;
+      const main = (txByRef(st).get(i.id) || []).filter(t => t.type === 'invoice'); const tot = Core.invoiceTotals(i).total;
       if (main.length !== 1 || main[0].amount !== tot) p.push('عدم تطابق حساب با فاکتور ' + i.no);
     });
     Core.replay(st).errors.forEach(e => p.push('موجودی منفی: ' + stockErrText(st, e)));
@@ -483,7 +508,7 @@
     for (const k of ['people', 'products', 'invoices', 'tx', 'expenses', 'cheques', 'adjusts']) { if (d[k] === undefined) d[k] = []; if (!Array.isArray(d[k])) return err('ساختار فایل پشتیبان خراب است.'); }
     d.settings = Object.assign(base.settings, d.settings || {}); d.v = 1;
     if (!Number.isInteger(d.seq)) d.seq = 1;
-    const maxId = Math.max(0, ...[].concat(d.people, d.products, d.invoices, d.tx, d.expenses, d.cheques, d.adjusts).map(x => +x.id || 0));
+    let maxId = 0; for (const k of ['people', 'products', 'invoices', 'tx', 'expenses', 'cheques', 'adjusts']) for (const x of d[k]) { const v = +x.id || 0; if (v > maxId) maxId = v; }
     if (d.seq <= maxId) d.seq = maxId + 1;
     const probs = Core.audit(d); if (probs.length) return err('فایل پشتیبان ناسازگار است: ' + probs[0]);
     return ok({ state: d });

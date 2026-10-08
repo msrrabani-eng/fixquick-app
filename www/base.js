@@ -85,6 +85,8 @@ function confirmBox(msg, label, danger) {
 function alertBox(title, html) { const sh = sheet(title, '<div class="msg">' + html + '</div><button class="btn blue" data-close style="margin-top:12px">باشه</button>'); return sh; }
 
 /* ── generic searchable picker ── */
+const faColl = (window.Intl && Intl.Collator) ? new Intl.Collator('fa') : null;
+function faCmp(a, b) { return faColl ? faColl.compare(a, b) : String(a).localeCompare(String(b), 'fa'); }
 /* search: Persian/English digits, Arabic ي/ك, half-space and word order don't matter */
 function normQ(s) { return Core.toEn(String(s == null ? '' : s)).replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[ۀة]/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/[\u200c\u200f\u200e_\-]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim(); }
 function matchQ(text, q) { const t = normQ(text), w = normQ(q).split(' ').filter(Boolean); return w.every(x => t.includes(x)); }
@@ -93,16 +95,16 @@ function pickList(title, items, onPick, o) {
   const sh = sheet(title, '<input class="inp" id="pk-s" placeholder="جستجو…" autocomplete="off">' + (o.addNew ? '<button class="btn ghost" id="pk-new" type="button">+ ' + esc(o.addNew) + '</button>' : '') + '<div class="list" id="pk-l"></div>', { tall: true });
   const draw = () => {
     const q = sh.q('#pk-s').value.trim();
-    const f = items.filter(i => !q || matchQ(i.label + ' ' + (i.sub || ''), q));
-    sh.q('#pk-l').innerHTML = f.length ? f.map(i => '<button type="button" class="item" data-v="' + esc(i.value) + '"><span>' + esc(i.label) + (i.sub ? '<small>' + esc(i.sub) + '</small>' : '') + '</span>' + (i.right ? '<em class="' + (i.cls || '') + '">' + esc(i.right) + '</em>' : '') + '</button>').join('') : '<div class="empty">موردی پیدا نشد</div>';
+    const all = items.filter(i => !q || matchQ(i.label + ' ' + (i.sub || ''), q)), f = all.slice(0, 80);
+    sh.q('#pk-l').innerHTML = (all.length > f.length ? '<p class="hint center">' + Core.toFa(all.length) + ' مورد؛ برای پیدا کردن سریع‌تر، جستجو کنید.</p>' : '') + (f.length ? f.map(i => '<button type="button" class="item" data-v="' + esc(i.value) + '"><span>' + esc(i.label) + (i.sub ? '<small>' + esc(i.sub) + '</small>' : '') + '</span>' + (i.right ? '<em class="' + (i.cls || '') + '">' + esc(i.right) + '</em>' : '') + '</button>').join('') : '<div class="empty">موردی پیدا نشد</div>');
   };
-  draw(); sh.q('#pk-s').addEventListener('input', draw);
+  draw(); let dt; sh.q('#pk-s').addEventListener('input', () => { clearTimeout(dt); dt = setTimeout(draw, 150); });
   sh.q('#pk-l').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; sh.close(); onPick(b.dataset.v); });
   if (o.addNew) sh.q('#pk-new').onclick = () => { sh.close(); o.onAdd(); };
   if (items.length > 12) autoFocus(() => sh.q('#pk-s')); // avoid popping the keyboard for short lists
   return sh;
 }
-const personItems = (o) => S.people.filter(p => !p.archived || (o && o.all)).map(p => { const b = Core.balanceOf(S, p.id); return { value: p.id, label: p.name, sub: p.phone, right: b ? fmt(Math.abs(b)) + (b > 0 ? ' بد' : ' بس') : '', cls: b > 0 ? 'debit' : 'credit' }; }).sort((a, b) => a.label.localeCompare(b.label, 'fa'));
+const personItems = (o) => { const bal = Core.balances(S); return S.people.filter(p => !p.archived || (o && o.all)).map(p => { const b = bal[p.id] || 0; return { value: p.id, label: p.name, sub: p.phone, right: b ? fmt(Math.abs(b)) + (b > 0 ? ' بد' : ' بس') : '', cls: b > 0 ? 'debit' : 'credit' }; }).sort((a, b) => faCmp(a.label, b.label)); };
 
 /* ── Jalali date picker ── */
 function datePick(iso, cb) {
@@ -182,7 +184,7 @@ const csvFile = rows => '﻿' + Core.csv(rows);
 const stamp = () => Core.isoToJalali(Core.todayISO()).replace(/\//g, '');
 
 /* ── result handler ── */
-async function done(r, okMsg) { if (!r.ok) { toast(r.error, true); return false; } await save(); if (okMsg) toast(okMsg); render(); return true; }
+async function done(r, okMsg) { if (!r.ok) { toast(r.error, true); return false; } save(); if (okMsg) toast(okMsg); render(); return true; } // save runs in the background so the screen updates at once
 /* ── appearance (theme / accent / font size) ── */
 const ACCENTS = { blue: ['#2563eb', '#1d4ed8', 'آبی'], green: ['#16a34a', '#15803d', 'سبز'], purple: ['#7c3aed', '#6d28d9', 'بنفش'], orange: ['#ea580c', '#c2410c', 'نارنجی'], red: ['#dc2626', '#b91c1c', 'قرمز'], teal: ['#0d9488', '#0f766e', 'فیروزه‌ای'] };
 const FS_MIN = 0.8, FS_MAX = 1.5;

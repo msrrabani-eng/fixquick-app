@@ -1,6 +1,8 @@
 /* Pages, forms and actions */
 'use strict';
-const UI = { peopleQ: '', peopleF: 'all', invQ: '', invF: 'all', prodQ: '', chqTab: 'open', rep: 'month', repFrom: null, repTo: null, stmtFrom: null, stmtTo: null, showArchived: false };
+const UI = { peopleQ: '', peopleF: 'all', invQ: '', invF: 'all', prodQ: '', chqTab: 'open', rep: 'month', repFrom: null, repTo: null, stmtFrom: null, stmtTo: null, showArchived: false, limPeople: 150, limInv: 100, limProd: 100, limChq: 150, limLedger: 200 };
+// long lists show the first N rows; «نمایش بیشتر» adds more (keeps phones fast with thousands of records)
+function moreBtn(k, shown, total) { return total > shown ? '<button class="btn ghost" data-act="more" data-k="' + k + '">نمایش بیشتر (' + fa(shown) + ' از ' + fa(total) + ')</button>' : ''; }
 const today = () => Core.todayISO();
 const personName = id => { const p = Core.byId(S.people, id); return p ? p.name : '—'; };
 const prodName = id => { const p = Core.byId(S.products, id); return p ? p.name : '—'; };
@@ -46,11 +48,11 @@ function pagePeople() {
   let list = S.people.filter(p => UI.showArchived ? p.archived : !p.archived);
   if (q) list = list.filter(p => matchQ(p.name + ' ' + p.phone + ' ' + (p.note || ''), q));
   if (UI.peopleF === 'debit') list = list.filter(p => b[p.id] > 0); else if (UI.peopleF === 'credit') list = list.filter(p => b[p.id] < 0); else if (UI.peopleF === 'zero') list = list.filter(p => !b[p.id]);
-  list.sort((x, y) => UI.peopleF === 'debit' ? b[y.id] - b[x.id] : UI.peopleF === 'credit' ? b[x.id] - b[y.id] : x.name.localeCompare(y.name, 'fa'));
+  list.sort((x, y) => UI.peopleF === 'debit' ? b[y.id] - b[x.id] : UI.peopleF === 'credit' ? b[x.id] - b[y.id] : faCmp(x.name, y.name));
   const rp = Core.receivablePayable(S);
   let h = '<div class="stats">' + stat('جمع طلب‌های من', fmt(rp.receivable), rp.receivable ? 'debit' : 'zero') + stat('جمع بدهی‌های من', fmt(rp.payable), rp.payable ? 'credit' : 'zero') + '</div>';
   h += '<input class="inp" id="people-q" placeholder="جستجوی نام یا تلفن…" value="' + esc(UI.peopleQ) + '" autocomplete="off">' + chips('peopleF', UI.peopleF, [['all', 'همه'], ['debit', 'طلب من'], ['credit', 'بدهی من'], ['zero', 'تسویه']]);
-  h += list.length ? '<div class="card flush">' + list.map(p => '<button class="row" data-act="go" data-h="#/person/' + p.id + '"><span><b>' + esc(p.name) + '</b><small>' + (esc(p.phone) || '&nbsp;') + '</small></span><span class="end">' + bal(b[p.id]) + '<small>' + (b[p.id] ? sign(b[p.id]) : '') + '</small></span></button>').join('') + '</div>'
+  h += list.length ? '<div class="card flush">' + list.slice(0, UI.limPeople).map(p => '<button class="row" data-act="go" data-h="#/person/' + p.id + '"><span><b>' + esc(p.name) + '</b><small>' + (esc(p.phone) || '&nbsp;') + '</small></span><span class="end">' + bal(b[p.id]) + '<small>' + (b[p.id] ? sign(b[p.id]) : '') + '</small></span></button>').join('') + '</div>' + moreBtn('limPeople', Math.min(UI.limPeople, list.length), list.length)
     : empty('👥', q || UI.peopleF !== 'all' ? 'موردی پیدا نشد.' : 'هنوز شخصی ثبت نکرده‌اید.', q ? '' : '<button class="btn blue" data-act="addPerson">+ افزودن شخص</button>');
   h += '<button class="lnk center" data-act="bulkPeople">📝 افزودن چند شخص یک‌جا</button>';
   if (S.people.some(p => p.archived)) h += '<button class="lnk center" data-act="toggleArchived">' + (UI.showArchived ? 'نمایش فعال‌ها' : 'نمایش بایگانی‌شده‌ها') + '</button>';
@@ -87,6 +89,7 @@ function personForm(p) {
 }
 
 function pagePerson(id) {
+  if (UI.ledgerFor !== id) { UI.ledgerFor = id; UI.limLedger = 200; }
   const p = Core.byId(S.people, +id); if (!p) return { title: 'شخص', html: empty('❓', 'شخص پیدا نشد.', backTo('#/people')), back: '#/people' };
   const from = UI.stmtFrom, to = UI.stmtTo, L = Core.ledger(S, p.id, from, to), b = Core.balanceOf(S, p.id);
   let h = '<div class="card hero ' + (b > 0 ? 'd' : b < 0 ? 'c' : '') + '"><small>' + (b > 0 ? 'این شخص به شما بدهکار است' : b < 0 ? 'شما به این شخص بدهکارید' : 'حساب تسویه است') + '</small><b>' + fmt(Math.abs(b)) + ' <i>ریال</i></b>' + (p.phone ? '<a class="tel" href="tel:' + esc(Core.toEn(p.phone)) + '">📞 ' + esc(p.phone) + '</a>' : '') + (p.note ? '<small>' + esc(p.note) + '</small>' : '') + '</div>';
@@ -95,7 +98,9 @@ function pagePerson(id) {
   if (from || to) h += '<div class="alert">بازه: ' + (from ? fmtDate(from) : 'ابتدا') + ' تا ' + (to ? fmtDate(to) : 'انتها') + ' <button class="lnk" data-act="stmtClear">حذف فیلتر</button></div>';
   h += '<div class="card flush ledger"><div class="lh"><span>تاریخ / شرح</span><span>اضافه</span><span>کم</span><span>مانده</span></div>';
   if (from && L.carry) h += '<div class="lr muted"><span>مانده از قبل</span><span></span><span></span><span>' + bal(L.carry) + '</span></div>';
-  h += L.rows.length ? L.rows.slice().reverse().map(r => '<button class="lr" data-act="txOpen" data-id="' + r.tx.id + '"><span><b>' + esc(fa(r.tx.desc || Core.TYPE_FA[r.tx.type] || 'ثبت دستی')) + '</b><small>' + fmtDate(r.tx.date) + (r.tx.method ? ' · ' + Core.METHODS[r.tx.method] : '') + '</small></span><span class="debit">' + (r.debit ? fmt(r.debit) : '') + '</span><span class="credit">' + (r.credit ? fmt(r.credit) : '') + '</span><span>' + bal(r.balance) + '</span></button>').join('') : '<div class="empty">تراکنشی ثبت نشده است.</div>';
+  const lrows = L.rows.slice().reverse(), lshow = lrows.slice(0, UI.limLedger);
+  h += L.rows.length ? lshow.map(r => '<button class="lr" data-act="txOpen" data-id="' + r.tx.id + '"><span><b>' + esc(fa(r.tx.desc || Core.TYPE_FA[r.tx.type] || 'ثبت دستی')) + '</b><small>' + fmtDate(r.tx.date) + (r.tx.method ? ' · ' + Core.METHODS[r.tx.method] : '') + '</small></span><span class="debit">' + (r.debit ? fmt(r.debit) : '') + '</span><span class="credit">' + (r.credit ? fmt(r.credit) : '') + '</span><span>' + bal(r.balance) + '</span></button>').join('') : '<div class="empty">تراکنشی ثبت نشده است.</div>';
+  h += moreBtn('limLedger', lshow.length, lrows.length);
   h += '</div><p class="hint">«اضافه» یعنی طلب شما از او بیشتر شد (مثلاً فروش به او). «کم» یعنی کمتر شد (مثلاً گرفتن پول از او، یا خرید از او).</p><div class="toolbar"><button class="btn ghost sm" data-act="archive" data-p="' + p.id + '">' + (p.archived ? '♻️ فعال‌سازی' : '🗄 بایگانی') + '</button><button class="btn ghost sm red" data-act="delPerson" data-p="' + p.id + '">🗑 حذف شخص</button></div>';
   return { title: p.name, html: h, back: '#/people' };
 }
@@ -144,7 +149,7 @@ function pageInvoices() {
   if (q) list = list.filter(i => matchQ(personName(i.personId) + ' ' + i.no + ' ' + invNotes(i).join(' ') + ' ' + i.items.map(l => prodName(l.productId)).join(' '), q));
   const sum = list.reduce((s, i) => s + Core.invoiceTotals(i).total, 0);
   let h = '<input class="inp" id="inv-q" placeholder="جستجوی نام، شماره فاکتور یا سریال…" value="' + esc(UI.invQ) + '" autocomplete="off">' + chips('invF', UI.invF, [['all', 'همه'], ['sale', 'فروش'], ['purchase', 'خرید'], ['sale_return', 'برگشت فروش'], ['purchase_return', 'برگشت خرید']]);
-  h += list.length ? '<div class="card flush">' + list.map(i => invRow(i, q)).join('') + '</div><p class="hint center">' + fa(list.length) + ' فاکتور · جمع: ' + fmt(sum) + ' ریال</p>' : empty('🧾', 'فاکتوری ثبت نشده است.', '<div class="row2"><button class="btn green" data-act="newInv" data-t="sale">فاکتور فروش</button><button class="btn blue" data-act="newInv" data-t="purchase">فاکتور خرید</button></div>');
+  h += list.length ? '<div class="card flush">' + list.slice(0, UI.limInv).map(i => invRow(i, q)).join('') + '</div>' + moreBtn('limInv', Math.min(UI.limInv, list.length), list.length) + '<p class="hint center">' + fa(list.length) + ' فاکتور · جمع: ' + fmt(sum) + ' ریال</p>' : empty('🧾', 'فاکتوری ثبت نشده است.', '<div class="row2"><button class="btn green" data-act="newInv" data-t="sale">فاکتور فروش</button><button class="btn blue" data-act="newInv" data-t="purchase">فاکتور خرید</button></div>');
   return { title: 'فاکتورها', html: h, fab: ['newInv', '+'], fabData: { t: 'sale' } };
 }
 
@@ -204,16 +209,15 @@ async function submitInvoice(e) {
   if (!f.pid.value) return toast('شخص را انتخاب کنید.', true); if (!date) return toast('تاریخ نامعتبر است.', true); if (rd.bad) return toast(rd.bad, true);
   if (isNaN(rd.discount)) return toast('تخفیف نامعتبر است.', true); if (isNaN(rd.paid)) return toast('مبلغ پرداخت/دریافت نامعتبر است.', true);
   const r = Core.addInvoice(S, { type: f.type.value, personId: +f.pid.value, date, no: Core.toEn(f.no.value).trim(), items: rd.items, discount: rd.discount, paid: rd.paid, method: f.method.value, note: f.note.value });
-  if (!r.ok) return toast(r.error, true); await save(); toast('فاکتور ثبت شد.'); goHash('#/inv/' + r.invoice.id);
+  if (!r.ok) return toast(r.error, true); save(); toast('فاکتور ثبت شد.'); goHash('#/inv/' + r.invoice.id);
 }
 
 /* ─────────── PRODUCTS ─────────── */
 function pageProducts() {
-  const q = Core.toEn(UI.prodQ).trim().toLowerCase(); let st = Core.productStats(S);
-  if (q) st = st.filter(x => matchQ(x.product.name + ' ' + x.product.sku, q)); st.sort((a, b) => a.product.name.localeCompare(b.product.name, 'fa'));
-  const all = Core.productStats(S);
+  const q = Core.toEn(UI.prodQ).trim().toLowerCase(); const all = Core.productStats(S); let st = all;
+  if (q) st = st.filter(x => matchQ(x.product.name + ' ' + x.product.sku, q)); st.sort((a, b) => faCmp(a.product.name, b.product.name));
   let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length)) + stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', 'ریال') + '</div><input class="inp" id="prod-q" placeholder="جستجوی کالا…" value="' + esc(UI.prodQ) + '" autocomplete="off">';
-  h += st.length ? '<div class="card flush">' + st.map(x => '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>').join('') + '</div>' : empty('📦', 'کالایی ثبت نشده است.', '<button class="btn blue" data-act="addProduct">+ افزودن کالا</button>');
+  h += st.length ? '<div class="card flush">' + st.slice(0, UI.limProd).map(x => '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>').join('') + '</div>' + moreBtn('limProd', Math.min(UI.limProd, st.length), st.length) : empty('📦', 'کالایی ثبت نشده است.', '<button class="btn blue" data-act="addProduct">+ افزودن کالا</button>');
   h += '<button class="lnk center" data-act="bulkProducts">📝 افزودن چند کالا فقط با نام</button>';
   return { title: 'انبار و کالاها', html: h, fab: ['addProduct', '+'] };
 }
@@ -250,7 +254,7 @@ function pageCheques() {
   const t = today(); const list = S.cheques.filter(c => UI.chqTab === 'open' ? !c.done : c.done).sort((a, b) => UI.chqTab === 'open' ? (a.dueDate < b.dueDate ? -1 : 1) : (a.doneAt < b.doneAt ? 1 : -1));
   const open = S.cheques.filter(c => !c.done), rec = open.filter(c => c.direction === 'receive').reduce((s, c) => s + c.amount, 0), pay = open.filter(c => c.direction === 'pay').reduce((s, c) => s + c.amount, 0);
   let h = '<div class="stats">' + stat('چک/قسط دریافتنی', fmt(rec), rec ? 'credit' : 'zero') + stat('چک/قسط پرداختنی', fmt(pay), pay ? 'debit' : 'zero') + '</div>' + chips('chqTab', UI.chqTab, [['open', 'در انتظار'], ['done', 'انجام‌شده']]);
-  h += list.length ? '<div class="card flush">' + list.map(c => { const st = Core.chequeStatus(c, t), dd = Core.diffDays(t, c.dueDate); return '<div class="row static"><span><b>' + (c.kind === 'cheque' ? '🧾 ' : '📆 ') + esc(c.title) + '</b><small>' + (c.personId ? esc(personName(c.personId)) + ' · ' : '') + (c.direction === 'receive' ? 'دریافتی' : 'پرداختی') + ' · ' + fmtDate(c.dueDate) + (st === 'overdue' ? ' · <u class="debit">' + fa(-dd) + ' روز گذشته</u>' : st === 'soon' ? ' · ' + (dd === 0 ? 'امروز' : fa(dd) + ' روز دیگر') : '') + '</small></span><span class="end"><em>' + fmt(c.amount) + '</em>' + (c.done ? '<button class="mini" data-act="chqReopen" data-id="' + c.id + '">بازگردانی</button>' : '<button class="mini ok" data-act="chqDone" data-id="' + c.id + '">انجام شد</button>') + '<button class="mini" data-act="chqDel" data-id="' + c.id + '">حذف</button></span></div>'; }).join('') + '</div>' : empty('📆', UI.chqTab === 'open' ? 'موردی در انتظار نیست.' : 'موردی انجام نشده است.', '<button class="btn blue" data-act="addCheque">+ ثبت چک / قسط</button>');
+  h += list.length ? '<div class="card flush">' + list.slice(0, UI.limChq).map(c => { const st = Core.chequeStatus(c, t), dd = Core.diffDays(t, c.dueDate); return '<div class="row static"><span><b>' + (c.kind === 'cheque' ? '🧾 ' : '📆 ') + esc(c.title) + '</b><small>' + (c.personId ? esc(personName(c.personId)) + ' · ' : '') + (c.direction === 'receive' ? 'دریافتی' : 'پرداختی') + ' · ' + fmtDate(c.dueDate) + (st === 'overdue' ? ' · <u class="debit">' + fa(-dd) + ' روز گذشته</u>' : st === 'soon' ? ' · ' + (dd === 0 ? 'امروز' : fa(dd) + ' روز دیگر') : '') + '</small></span><span class="end"><em>' + fmt(c.amount) + '</em>' + (c.done ? '<button class="mini" data-act="chqReopen" data-id="' + c.id + '">بازگردانی</button>' : '<button class="mini ok" data-act="chqDone" data-id="' + c.id + '">انجام شد</button>') + '<button class="mini" data-act="chqDel" data-id="' + c.id + '">حذف</button></span></div>'; }).join('') + '</div>' + moreBtn('limChq', Math.min(UI.limChq, list.length), list.length) : empty('📆', UI.chqTab === 'open' ? 'موردی در انتظار نیست.' : 'موردی انجام نشده است.', '<button class="btn blue" data-act="addCheque">+ ثبت چک / قسط</button>');
   return { title: 'چک و اقساط', html: h, fab: ['addCheque', '+'], back: '#/more' };
 }
 function chequeForm() {
@@ -287,7 +291,7 @@ function pageReports() {
   const tc = Core.topPeople(S, 'sale', from, to, 5), tp = Core.topProducts(S, from, to, 5);
   if (tc.length) h += '<div class="card"><div class="ch">بهترین مشتریان</div>' + tc.map(x => row(esc(x.person ? x.person.name : '—'), x.total)).join('') + '</div>';
   if (tp.length) h += '<div class="card"><div class="ch">پرفروش‌ترین کالاها</div>' + tp.map(x => '<div class="rr"><span>' + esc(x.product ? x.product.name : '—') + '<small> ×' + Core.fmtQty(x.qty) + '</small></span><b>' + fmt(x.total) + '</b></div>').join('') + '</div>';
-  const deb = S.people.map(p => ({ p, b: Core.balanceOf(S, p.id) })).filter(x => x.b > 0).sort((a, b) => b.b - a.b).slice(0, 8);
+  const balAll = Core.balances(S), deb = S.people.map(p => ({ p, b: balAll[p.id] || 0 })).filter(x => x.b > 0).sort((a, b) => b.b - a.b).slice(0, 8);
   if (deb.length) h += '<div class="card"><div class="ch">بیشترین طلب‌های من</div>' + deb.map(x => '<button class="rr" data-act="go" data-h="#/person/' + x.p.id + '"><span>' + esc(x.p.name) + '</span><b class="debit">' + fmt(x.b) + '</b></button>').join('') + '</div>';
   h += '<div class="toolbar"><button class="btn ghost sm" data-act="csvPeople">📄 CSV مانده اشخاص</button><button class="btn ghost sm" data-act="csvInvoices">📄 CSV فاکتورها</button><button class="btn ghost sm" data-act="csvLedger">📄 CSV کل تراکنش‌ها</button></div>';
   return { title: 'گزارش‌ها', html: h, back: '#/more' };
@@ -373,6 +377,7 @@ const actions = {
     const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); } const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice(); };
     pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', onAdd: () => productForm(null, { inInvoice: true, onSaved: fill }) });
   },
+  more: d => { UI[d.k] += { limInv: 100, limProd: 100, limLedger: 200 }[d.k] || 150; render(); },
   bulkProducts: () => bulkProducts(), bulkPeople: () => bulkPeople(),
   reportWa: async () => { diagWhatsApp(await diagReport()); try { localStorage.setItem('fq_err_seen', String(diagLoad().length)); } catch (e) { /* ignore */ } },
   reportShare: async () => shareText(await diagReport(), 'گزارش خطا'),
@@ -427,8 +432,9 @@ function render() {
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return; const fn = actions[b.dataset.act]; if (fn) { e.preventDefault(); try { const r = fn(b.dataset, b, e); if (r && r.catch) r.catch(x => { diagLog('action', x && x.message || x, x && x.stack, b.dataset.act); toast('خطایی رخ داد؛ از تنظیمات «گزارش خطا» را بفرستید.', true); }); } catch (x) { diagLog('action', x.message, x.stack, b.dataset.act); toast('خطایی رخ داد؛ از تنظیمات «گزارش خطا» را بفرستید.', true); } }
 });
+let searchT;
 document.addEventListener('input', e => {
-  const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ' }[i.id]; if (!m) return; UI[m] = i.value; const pos = i.selectionStart; render(); const n = $('#' + i.id); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } }
+  const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ' }[i.id]; if (!m) return; UI[m] = i.value; UI.limPeople = 150; UI.limInv = 100; UI.limProd = 100; clearTimeout(searchT); searchT = setTimeout(() => { const cur = document.activeElement === i; const pos = i.selectionStart; render(); const n = $('#' + i.id); if (n && cur) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } } }, 180);
 });
 let lastFull = '';
 window.addEventListener('hashchange', () => { if ((location.hash || '#/home') !== lastFull) render(); }); // ignore duplicate events for the same address (would wipe an open form)

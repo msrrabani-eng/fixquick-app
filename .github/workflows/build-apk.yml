@@ -33,6 +33,22 @@ jobs:
       - name: Create Android project
         run: npx cap add android
 
+      - name: Permissions (camera for QR scanning, fingerprint)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          python3 - <<'PY'
+          f = 'android/app/src/main/AndroidManifest.xml'
+          s = open(f).read()
+          add = ''
+          for line in ['<uses-permission android:name="android.permission.CAMERA" />',
+                       '<uses-feature android:name="android.hardware.camera" android:required="false" />',
+                       '<uses-permission android:name="android.permission.USE_BIOMETRIC" />']:
+              if line.split('"')[1] not in s: add += '    ' + line + '\n'
+          i = s.index('<application'); s = s[:i] + add + '    ' + s[i:].lstrip() if add else s
+          open(f, 'w').write(s)
+          PY
+          grep -n "uses-" $M
+
       - name: Icons and splash
         run: |
           pip install --quiet pillow

@@ -74,11 +74,11 @@ async function drawInvoicePages(inv) {
   return pages;
 }
 
-function canvasesToPdf(pages) {
+function canvasesToPdf(pages, pw, ph) {
   const enc = s => new TextEncoder().encode(s), parts = [], offs = []; let len = 0;
   const push = b => { parts.push(b); len += b.length; };
   const obj = (n, body) => { offs[n] = len; push(enc(n + ' 0 obj\n')); push(body); push(enc('\nendobj\n')); };
-  push(enc('%PDF-1.4\n')); const N = pages.length, PW = 419.53, PH = 595.28;
+  push(enc('%PDF-1.4\n')); const N = pages.length, PW = pw || 419.53, PH = ph || 595.28;
   obj(1, enc('<< /Type /Catalog /Pages 2 0 R >>'));
   obj(2, enc('<< /Type /Pages /Count ' + N + ' /Kids [' + pages.map((_, i) => (3 + i * 3) + ' 0 R').join(' ') + '] >>'));
   pages.forEach((cv, i) => {
@@ -98,4 +98,30 @@ async function printInvoice(id) {
     toast('در حال ساخت فایل چاپ…'); const pdf = canvasesToPdf(await drawInvoicePages(inv));
     await exportBinary('invoice-' + Core.toEn(String(inv.no)) + '.pdf', pdf, 'application/pdf');
   } catch (e) { toast('ساخت فایل چاپ ناموفق بود: ' + (e.message || e), true); }
+}
+
+/* QR labels on A4: 3 × 8 grid (70 × 37 mm, standard 24-up label sheets) */
+async function drawLabelPages(items, opt) {
+  opt = opt || {}; const W = 1240, H = 1754, cols = 3, rows = 8, mmx = W / 210, lw = 70 * mmx, lh = 37 * mmx, top = (H - rows * lh) / 2;
+  const { FONT } = PRINT, pages = []; let cv, x, i = 0;
+  for (const it of items) {
+    if (i % (cols * rows) === 0) { cv = document.createElement('canvas'); cv.width = W; cv.height = H; x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.direction = 'rtl'; pages.push(cv); }
+    const k = i % (cols * rows), c = cols - 1 - (k % cols), r = Math.floor(k / cols), lx = c * lw, ly = top + r * lh, pad = 14;
+    if (opt.guides) { x.strokeStyle = '#d0d5dd'; x.lineWidth = 1; x.strokeRect(lx + 0.5, ly + 0.5, lw - 1, lh - 1); }
+    const qs = lh - pad * 2, q = qrCanvas(prodQrText(it.p), qs); x.imageSmoothingEnabled = false; x.drawImage(q, lx + pad, ly + pad, qs, qs);
+    const tx = lx + lw - pad, tw = lw - qs - pad * 3; x.textAlign = 'right'; x.fillStyle = '#111827';
+    x.font = '700 26px ' + FONT; const lines = wrapText(x, it.p.name, tw).slice(0, 3); let ty = ly + pad + 30; lines.forEach(t => { x.fillText(t, tx, ty); ty += 32; });
+    x.font = '400 22px ' + FONT; x.fillStyle = '#4b5563';
+    if (it.p.sku) { x.fillText(Core.toFa(it.p.sku), tx, ty + 4); ty += 30; }
+    if (opt.price && it.p.salePrice) { x.font = '700 24px ' + FONT; x.fillStyle = '#111827'; x.fillText(fmt(it.p.salePrice) + ' ریال', tx, ly + lh - pad - 6); }
+    i++;
+  }
+  return pages;
+}
+async function printLabels(products, copies, opt) {
+  const items = []; products.forEach(p => { for (let c = 0; c < copies; c++) items.push({ p }); });
+  if (!items.length) return toast('کالایی برای چاپ نیست.', true);
+  if (items.length > 960) return toast('حداکثر ۹۶۰ برچسب در هر بار چاپ (۴۰ برگه). فهرست را با جستجو کوتاه‌تر کنید.', true);
+  try { toast('در حال ساخت برچسب‌ها…'); const pdf = canvasesToPdf(await drawLabelPages(items, opt), 595.28, 841.89); await exportBinary('labels-' + stamp() + '.pdf', pdf, 'application/pdf'); }
+  catch (e) { toast('ساخت برچسب ناموفق بود: ' + (e.message || e), true); }
 }

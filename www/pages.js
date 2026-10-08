@@ -31,6 +31,7 @@ function pageHome() {
   if (low.length) h += '<div class="card"><div class="ch">📉 کمبود موجودی</div>' + low.slice(0, 5).map(x => '<button class="row" data-act="go" data-h="#/products"><span><b>' + esc(x.product.name) + '</b></span><em class="debit">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em></button>').join('') + '</div>';
   const recent = S.invoices.slice().sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id).slice(0, 4);
   if (recent.length) h += '<div class="card"><div class="ch">آخرین فاکتورها <button class="lnk" data-act="go" data-h="#/invoices">همه</button></div>' + recent.map(i => invRow(i)).join('') + '</div>';
+  if (!licOk) { const left = freeLeft(); if (left <= 10) h = '<div class="alert' + (left ? '' : ' warn') + '">' + (left ? '⭐ ' + fa(left) + ' فاکتور و سند رایگان باقی مانده است.' : '⭐ ثبت رایگان تمام شده است.') + ' <button class="lnk" data-act="activate">نسخه نامحدود</button></div>' + h; }
   const errs = diagLoad(); let seen = 0; try { seen = +localStorage.getItem('fq_err_seen') || 0; } catch (e) { /* ignore */ }
   if (errs.length > seen) h = '<div class="alert warn">⚠️ برنامه با خطا روبه‌رو شده است. لطفاً گزارش را بفرستید تا برطرف شود. <button class="lnk" data-act="reportWa">ارسال گزارش</button> <button class="lnk" data-act="errSeen">بستن</button></div>' + h;
   return { title: S.settings.business || 'حسابداری فیکس کوییک', html: h };
@@ -120,9 +121,10 @@ function txForm(type, personId, tx) {
   f.onsubmit = async e => {
     e.preventDefault(); const amount = Core.parseMoney(f.amount.value), date = readDate(f, 'date');
     if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true);
+    if (!tx && !gate()) return;
     const r = tx ? Core.editTx(S, tx.id, { amount, date, desc: f.desc.value, kind: f.kind ? f.kind.value : tx.kind, method: f.method ? f.method.value : null })
       : Core.addTx(S, { personId, type: t, kind: f.kind ? f.kind.value : null, amount, date, desc: f.desc.value || titles[t], method: f.method ? f.method.value : null });
-    if (await done(r, 'ثبت شد.')) sh.close();
+    if (await done(r, 'ثبت شد.')) { if (!tx) bumpUsage(); sh.close(); }
   };
 }
 function transferForm(fromId) {
@@ -130,7 +132,7 @@ function transferForm(fromId) {
   const sh = sheet('حواله بین دو شخص', '<form id="xf"><label class="fld"><span>از حساب (پرداخت‌کننده)</span><button type="button" class="inp pick" id="xf-a">' + esc(from ? personName(from) : 'انتخاب…') + '</button></label><label class="fld"><span>به حساب (دریافت‌کننده)</span><button type="button" class="inp pick" id="xf-b">انتخاب…</button></label>' + moneyField('amount', 0, 'مبلغ') + dateField('date', today()) + '<label class="fld"><span>شرح</span><input class="inp" name="desc"></label><p class="hint">مبلغ از حساب مبدأ کم و به حساب مقصد اضافه می‌شود.</p><button class="btn blue" type="submit">ثبت حواله</button></form>');
   sh.q('#xf-a').onclick = () => pickList('از حساب', personItems(), v => { from = +v; sh.q('#xf-a').textContent = personName(from); });
   sh.q('#xf-b').onclick = () => pickList('به حساب', personItems(), v => { to = +v; sh.q('#xf-b').textContent = personName(to); });
-  const f = sh.q('#xf'); f.onsubmit = async e => { e.preventDefault(); const date = readDate(f, 'date'), amount = Core.parseMoney(f.amount.value); if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); if (await done(Core.addTransfer(S, { fromId: from, toId: to, amount, date, desc: f.desc.value }), 'حواله ثبت شد.')) sh.close(); };
+  const f = sh.q('#xf'); f.onsubmit = async e => { e.preventDefault(); const date = readDate(f, 'date'), amount = Core.parseMoney(f.amount.value); if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); if (!gate()) return; if (await done(Core.addTransfer(S, { fromId: from, toId: to, amount, date, desc: f.desc.value }), 'حواله ثبت شد.')) { bumpUsage(); sh.close(); } };
 }
 function txOpen(id) {
   const t = Core.byId(S.tx, id); if (!t) return;
@@ -177,7 +179,7 @@ function pageNewInvoice(type, preset) {
   const payLabel = type === 'sale' ? 'دریافتی همزمان' : type === 'purchase' ? 'پرداختی همزمان' : type === 'sale_return' ? 'مبلغ بازپرداخت‌شده به مشتری' : 'مبلغ دریافتی از تأمین‌کننده';
   let h = '<div class="chips">' + Object.keys(Core.TYPE_FA).map(k => '<button type="button" class="chip' + (k === type ? ' on' : '') + '" data-act="newInv" data-t="' + k + '"' + (personId ? ' data-p="' + personId + '"' : '') + '>' + Core.TYPE_FA[k] + '</button>').join('') + '</div>';
   h += '<form id="nf" class="card"><input type="hidden" name="type" value="' + type + '"><input type="hidden" name="pid" value="' + (personId || '') + '"><label class="fld"><span>' + (isSaleSide ? 'مشتری' : 'تأمین‌کننده / فروشنده') + '</span><button type="button" class="inp pick" id="nf-p" data-act="pickInvPerson">' + (personId ? esc(personName(personId)) : 'انتخاب شخص…') + '</button></label><div class="row2">' + dateField('date', today()) + '<label class="fld"><span>شماره فاکتور</span><input class="inp ltr" name="no" inputmode="numeric" value="' + fa(Core.nextInvoiceNo(S)) + '"></label></div>' +
-    '<div class="ch">اقلام</div><div id="rows"></div><button type="button" class="btn ghost" data-act="addRow">+ افزودن قلم</button>' +
+    '<div class="ch">اقلام</div><div id="rows"></div><div class="row2"><button type="button" class="btn ghost" data-act="addRow">+ افزودن قلم</button><button type="button" class="btn ghost" data-act="scanInv">📷 اسکن کالا</button></div>' +
     '<div class="sumbox"><div class="kv"><span>جمع اقلام</span><b id="s-sub">۰</b></div></div>' + moneyField('discount', 0, 'تخفیف (ریال)') +
     '<div class="sumbox"><div class="kv"><span>مبلغ نهایی</span><b class="big" id="s-tot">۰ ریال</b></div></div>' + moneyField('paid', 0, payLabel) + '<div class="row2"><button type="button" class="lnk" data-act="payFull">تسویه کامل</button></div>' + methodSel('cash') +
     '<div class="kv small"><span>' + ({ sale: 'او هنوز باید به من بدهد', purchase: 'من هنوز باید به او بدهم', sale_return: 'مانده‌ای که باید به او برگردانم', purchase_return: 'مانده‌ای که او باید به من برگرداند' }[type]) + '</span><b id="s-rem">۰</b></div><label class="fld"><span>توضیحات</span><input class="inp" name="note"></label><button class="btn ' + (isSaleSide ? 'green' : 'blue') + '" type="submit" id="nf-save">ثبت فاکتور ' + Core.TYPE_FA[type] + '</button></form>';
@@ -208,8 +210,9 @@ async function submitInvoice(e) {
   e.preventDefault(); const f = $('#nf'), rd = readInvoice(); const date = readDate(f, 'date');
   if (!f.pid.value) return toast('شخص را انتخاب کنید.', true); if (!date) return toast('تاریخ نامعتبر است.', true); if (rd.bad) return toast(rd.bad, true);
   if (isNaN(rd.discount)) return toast('تخفیف نامعتبر است.', true); if (isNaN(rd.paid)) return toast('مبلغ پرداخت/دریافت نامعتبر است.', true);
+  if (!gate()) return;
   const r = Core.addInvoice(S, { type: f.type.value, personId: +f.pid.value, date, no: Core.toEn(f.no.value).trim(), items: rd.items, discount: rd.discount, paid: rd.paid, method: f.method.value, note: f.note.value });
-  if (!r.ok) return toast(r.error, true); save(); toast('فاکتور ثبت شد.'); goHash('#/inv/' + r.invoice.id);
+  if (!r.ok) return toast(r.error, true); bumpUsage(); save(); toast('فاکتور ثبت شد.'); goHash('#/inv/' + r.invoice.id);
 }
 
 /* ─────────── PRODUCTS ─────────── */
@@ -218,13 +221,13 @@ function pageProducts() {
   if (q) st = st.filter(x => matchQ(x.product.name + ' ' + x.product.sku, q)); st.sort((a, b) => faCmp(a.product.name, b.product.name));
   let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length)) + stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', 'ریال') + '</div><input class="inp" id="prod-q" placeholder="جستجوی کالا…" value="' + esc(UI.prodQ) + '" autocomplete="off">';
   h += st.length ? '<div class="card flush">' + st.slice(0, UI.limProd).map(x => '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>').join('') + '</div>' + moreBtn('limProd', Math.min(UI.limProd, st.length), st.length) : empty('📦', 'کالایی ثبت نشده است.', '<button class="btn blue" data-act="addProduct">+ افزودن کالا</button>');
-  h += '<button class="lnk center" data-act="bulkProducts">📝 افزودن چند کالا فقط با نام</button>';
+  h += '<div class="row2"><button class="btn ghost" data-act="scanProd">📷 اسکن کالا</button><button class="btn ghost" data-act="labelsAll">🏷 برچسب کیو آر</button></div><button class="lnk center" data-act="bulkProducts">📝 افزودن چند کالا فقط با نام</button>';
   return { title: 'انبار و کالاها', html: h, fab: ['addProduct', '+'] };
 }
 function productForm(p, o) {
   o = o || {};
-  const sh = sheet(p ? 'ویرایش کالا' : o.inInvoice ? 'کالای جدید (به انبار هم اضافه می‌شود)' : 'کالای جدید', '<form id="gf"><label class="fld"><span>نام کالا</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><div class="row2"><label class="fld"><span>کد (اختیاری)</span><input class="inp ltr" name="sku" value="' + esc(p ? p.sku : '') + '"></label><label class="fld"><span>واحد</span><input class="inp" name="unit" value="' + esc(p ? p.unit : 'عدد') + '"></label></div>' + moneyField('salePrice', p ? p.salePrice : 0, 'قیمت فروش پیش‌فرض') + moneyField('buyPrice', p ? p.buyPrice : 0, 'قیمت خرید پیش‌فرض') + (p || o.inInvoice ? '' : '<label class="fld"><span>موجودی اولیه (اختیاری)</span><input class="inp ltr" name="openQty" inputmode="decimal" placeholder="۰" autocomplete="off"></label><p class="hint">اگر همین الان از این کالا دارید، تعدادش را بنویسید. با «قیمت خرید» بالا در انبار ثبت می‌شود و در سود و زیان حساب نمی‌شود. اگر فقط می‌خواهید نام کالا در فهرست باشد، فقط «نام کالا» را بنویسید و بقیه را خالی بگذارید.</p>') + '<label class="fld"><span>حداقل موجودی (هشدار)</span><input class="inp ltr" name="minStock" inputmode="decimal" value="' + fa(p ? p.minStock : 0) + '"></label><button class="btn blue" type="submit">ذخیره</button></form>');
-  const f = sh.q('#gf'); f.onsubmit = async e => { e.preventDefault(); const d = { name: f.name.value, sku: f.sku.value, unit: f.unit.value, salePrice: Core.parseMoney(f.salePrice.value || '0'), buyPrice: Core.parseMoney(f.buyPrice.value || '0'), minStock: Core.parseNum(f.minStock.value || '0') }; if (isNaN(d.salePrice) || isNaN(d.buyPrice) || isNaN(d.minStock)) return toast('مقادیر عددی نامعتبر است.', true); const oq = (!p && f.openQty && f.openQty.value.trim() !== '') ? Core.parseNum(f.openQty.value) : 0; if (isNaN(oq) || oq < 0) return toast('موجودی اولیه نامعتبر است.', true); if (oq > 0 && !(d.buyPrice > 0)) return toast('برای موجودی اولیه، قیمت خرید را هم وارد کنید.', true); let r = p ? Core.editProduct(S, p.id, d) : Core.addProduct(S, d); if (o.onSaved && r.ok && !p) { await save(); sh.close(); toast('کالا به انبار اضافه شد.'); o.onSaved(r.product); return; } if (r.ok && !p && oq > 0) { const a = Core.addAdjust(S, { productId: r.product.id, qty: oq, cost: d.buyPrice, date: today(), note: 'موجودی اولیه', opening: true }); if (!a.ok) { Core.deleteProduct(S, r.product.id); r = a; } } if (await done(r, 'ذخیره شد.')) sh.close(); };
+  const sh = sheet(p ? 'ویرایش کالا' : o.inInvoice ? 'کالای جدید (به انبار هم اضافه می‌شود)' : 'کالای جدید', '<form id="gf"><label class="fld"><span>نام کالا</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><div class="row2"><label class="fld"><span>کد (اختیاری)</span><input class="inp ltr" name="sku" value="' + esc(p ? p.sku : '') + '"></label><label class="fld"><span>واحد</span><input class="inp" name="unit" value="' + esc(p ? p.unit : 'عدد') + '"></label></div><label class="fld"><span>بارکد کارخانه (اختیاری)</span><div class="inrow"><input class="inp ltr" name="barcode" value="' + esc(p ? (p.barcode || '') : (o.barcode || '')) + '" autocomplete="off"><button type="button" class="btn ghost sm" id="gf-scan">📷</button></div></label>' + moneyField('salePrice', p ? p.salePrice : 0, 'قیمت فروش پیش‌فرض') + moneyField('buyPrice', p ? p.buyPrice : 0, 'قیمت خرید پیش‌فرض') + (p || o.inInvoice ? '' : '<label class="fld"><span>موجودی اولیه (اختیاری)</span><input class="inp ltr" name="openQty" inputmode="decimal" placeholder="۰" autocomplete="off"></label><p class="hint">اگر همین الان از این کالا دارید، تعدادش را بنویسید. با «قیمت خرید» بالا در انبار ثبت می‌شود و در سود و زیان حساب نمی‌شود. اگر فقط می‌خواهید نام کالا در فهرست باشد، فقط «نام کالا» را بنویسید و بقیه را خالی بگذارید.</p>') + '<label class="fld"><span>حداقل موجودی (هشدار)</span><input class="inp ltr" name="minStock" inputmode="decimal" value="' + fa(p ? p.minStock : 0) + '"></label><button class="btn blue" type="submit">ذخیره</button></form>');
+  const f = sh.q('#gf'); sh.q('#gf-scan').onclick = () => openScanner({ title: 'اسکن بارکد کالا', onCode: t => { f.barcode.value = t; } }); f.onsubmit = async e => { e.preventDefault(); const d = { name: f.name.value, barcode: f.barcode.value, sku: f.sku.value, unit: f.unit.value, salePrice: Core.parseMoney(f.salePrice.value || '0'), buyPrice: Core.parseMoney(f.buyPrice.value || '0'), minStock: Core.parseNum(f.minStock.value || '0') }; if (isNaN(d.salePrice) || isNaN(d.buyPrice) || isNaN(d.minStock)) return toast('مقادیر عددی نامعتبر است.', true); const oq = (!p && f.openQty && f.openQty.value.trim() !== '') ? Core.parseNum(f.openQty.value) : 0; if (isNaN(oq) || oq < 0) return toast('موجودی اولیه نامعتبر است.', true); if (oq > 0 && !(d.buyPrice > 0)) return toast('برای موجودی اولیه، قیمت خرید را هم وارد کنید.', true); let r = p ? Core.editProduct(S, p.id, d) : Core.addProduct(S, d); if (o.onSaved && r.ok && !p) { await save(); sh.close(); toast('کالا به انبار اضافه شد.'); o.onSaved(r.product); return; } if (r.ok && !p && oq > 0) { const a = Core.addAdjust(S, { productId: r.product.id, qty: oq, cost: d.buyPrice, date: today(), note: 'موجودی اولیه', opening: true }); if (!a.ok) { Core.deleteProduct(S, r.product.id); r = a; } } if (await done(r, 'ذخیره شد.')) sh.close(); };
   autoFocus(() => f.name);
 }
 function bulkProducts() {
@@ -232,9 +235,16 @@ function bulkProducts() {
   sh.q('#bf').onsubmit = async e => { e.preventDefault(); const names = Array.from(new Set(e.target.t.value.split(/\n/).map(s => s.trim()).filter(Boolean))); if (!names.length) return toast('نامی نوشته نشده است.', true); let add = 0, dup = 0; for (const n of names) { const r = Core.addProduct(S, { name: n }); if (r.ok) add++; else dup++; } if (add) await save(); sh.close(); toast(fa(add) + ' کالا اضافه شد' + (dup ? ' (' + fa(dup) + ' مورد تکراری بود)' : '') + '.', !add); render(); };
   autoFocus(() => sh.q('[name=t]'));
 }
+function labelSheet(list) {
+  const one = list.length === 1;
+  const sh = sheet('چاپ برچسب کیو آر', '<form id="lf"><p class="hint">برگه A4 با ۲۴ برچسب (۷۰ × ۳۷ میلی‌متر، اندازه برگه‌های برچسب آماده). ' + (one ? '' : fa(list.length) + ' کالا انتخاب شده است.') + '</p><label class="fld"><span>' + (one ? 'تعداد برچسب' : 'تعداد برچسب از هر کالا') + '</span><input class="inp ltr" name="n" inputmode="numeric" value="' + fa(one ? 24 : 1) + '"></label><label class="chk"><input type="checkbox" name="price" checked> قیمت فروش روی برچسب باشد</label><label class="chk"><input type="checkbox" name="guides"> خط برش دور برچسب‌ها (برای کاغذ معمولی)</label><button class="btn blue" type="submit">ساخت فایل چاپ</button></form>');
+  sh.q('#lf').onsubmit = e => { e.preventDefault(); const f = e.target, n = Core.parseNum(f.n.value); if (!(n >= 1 && n <= 480)) return toast('تعداد نامعتبر است.', true); sh.close(); printLabels(list, Math.round(n), { price: f.price.checked, guides: f.guides.checked }); };
+}
 function prodOpen(id) {
   const x = Core.productStats(S).find(s => s.product.id === id); if (!x) return; const p = x.product;
-  const sh = sheet(p.name, '<div class="kv"><span>موجودی</span><b>' + Core.fmtQty(x.stock) + ' ' + esc(p.unit) + '</b><span>میانگین قیمت خرید</span><b>' + fmt(x.avg) + '</b><span>ارزش موجودی</span><b>' + fmt(x.value) + '</b><span>قیمت فروش پیش‌فرض</span><b>' + fmt(p.salePrice) + '</b></div><div class="row2"><button class="btn blue" data-k>📒 کاردکس</button><button class="btn ghost" data-a>⚖️ تعدیل موجودی</button><button class="btn ghost" data-e>✏️ ویرایش</button><button class="btn red" data-d>🗑 حذف</button></div>');
+  const sh = sheet(p.name, '<div class="qrbox"><div id="pq-qr"></div><div><b>کیو آر کد کالا</b><small>برای ثبت سریع در فاکتور، این کد را روی کالا بچسبانید و اسکن کنید.</small>' + (p.barcode ? '<small class="ltr">بارکد: ' + esc(p.barcode) + '</small>' : '') + '<button class="btn ghost sm" data-l>🏷 چاپ برچسب</button></div></div><div class="kv"><span>موجودی</span><b>' + Core.fmtQty(x.stock) + ' ' + esc(p.unit) + '</b><span>میانگین قیمت خرید</span><b>' + fmt(x.avg) + '</b><span>ارزش موجودی</span><b>' + fmt(x.value) + '</b><span>قیمت فروش پیش‌فرض</span><b>' + fmt(p.salePrice) + '</b></div><div class="row2"><button class="btn blue" data-k>📒 کاردکس</button><button class="btn ghost" data-a>⚖️ تعدیل موجودی</button><button class="btn ghost" data-e>✏️ ویرایش</button><button class="btn red" data-d>🗑 حذف</button></div>');
+  const qc = qrCanvas(prodQrText(p), 220); qc.style.width = '110px'; qc.style.height = '110px'; sh.q('#pq-qr').appendChild(qc);
+  sh.q('[data-l]').onclick = () => labelSheet([p]);
   sh.q('[data-k]').onclick = () => { sh.close(); goHash('#/kardex/' + p.id); }; sh.q('[data-a]').onclick = () => { sh.close(); adjustForm(p); }; sh.q('[data-e]').onclick = () => { sh.close(); productForm(p); };
   sh.q('[data-d]').onclick = async () => { if (await confirmBox('کالای «' + p.name + '» حذف شود؟', 'حذف', true)) { sh.close(); await done(Core.deleteProduct(S, p.id), 'حذف شد.'); } };
 }
@@ -273,7 +283,7 @@ function pageExpenses() {
 }
 function expenseForm(e) {
   const sh = sheet(e ? 'ویرایش هزینه' : 'هزینه جدید', '<form id="ef"><label class="fld"><span>عنوان</span><input class="inp" name="title" value="' + esc(e ? e.title : '') + '"></label>' + moneyField('amount', e ? e.amount : 0, 'مبلغ') + '<div class="row2"><label class="fld"><span>دسته (اختیاری)</span><input class="inp" name="cat" value="' + esc(e ? e.category : '') + '" list="cats"><datalist id="cats">' + [...new Set(S.expenses.map(x => x.category).filter(Boolean))].map(c => '<option value="' + esc(c) + '">').join('') + '</datalist></label>' + methodSel(e && e.method) + '</div>' + dateField('date', e ? e.date : today()) + '<div class="row2"><button class="btn blue" type="submit">ذخیره</button>' + (e ? '<button class="btn red" type="button" data-del>حذف</button>' : '') + '</div></form>');
-  const f = sh.q('#ef'); f.onsubmit = async ev => { ev.preventDefault(); const date = readDate(f, 'date'), amount = Core.parseMoney(f.amount.value); if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); const d = { title: f.title.value, amount, date, method: f.method.value, category: f.cat.value }; if (await done(e ? Core.editExpense(S, e.id, d) : Core.addExpense(S, d), 'ذخیره شد.')) sh.close(); };
+  const f = sh.q('#ef'); f.onsubmit = async ev => { ev.preventDefault(); const date = readDate(f, 'date'), amount = Core.parseMoney(f.amount.value); if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true); const d = { title: f.title.value, amount, date, method: f.method.value, category: f.cat.value }; if (!e && !gate()) return; if (await done(e ? Core.editExpense(S, e.id, d) : Core.addExpense(S, d), 'ذخیره شد.')) { if (!e) bumpUsage(); sh.close(); } };
   const dl = sh.q('[data-del]'); if (dl) dl.onclick = async () => { if (await confirmBox('این هزینه حذف شود؟', 'حذف', true)) { sh.close(); await done(Core.deleteExpense(S, e.id), 'حذف شد.'); } };
 }
 
@@ -320,6 +330,8 @@ function pageSettings() {
   h += '<div class="card"><div class="ch">💾 پشتیبان‌گیری</div><p class="hint">' + (days === null ? 'هنوز پشتیبان نگرفته‌اید.' : 'آخرین پشتیبان: ' + fmtDate(S.settings.lastBackup) + ' (' + fa(days) + ' روز پیش)') + '</p><p class="hint">اطلاعات فقط روی همین گوشی است. با حذف برنامه یا پاک‌کردن اطلاعات مرورگر از بین می‌رود؛ پس مرتب پشتیبان بگیرید و فایل را برای خودتان (مثلاً تلگرام/Drive) بفرستید.</p><div class="row2"><button class="btn green" data-act="backup">دریافت پشتیبان</button><button class="btn ghost" data-act="restore">بازیابی از فایل</button></div><input type="file" id="restore-file" accept=".json,application/json" hidden></div>';
   const au = S.settings.auth || {};
   h += '<div class="card"><div class="ch">👤 حساب کاربری</div><p class="hint">نام کاربری: <b>' + esc(au.user || '') + '</b></p><div class="row2"><button class="btn ghost" data-act="changePass">تغییر رمز</button><button class="btn ghost" data-act="newCode">کد بازیابی جدید</button></div><button class="btn ghost" data-act="logout">🔒 خروج و قفل برنامه</button>' + (isNative() ? '<button class="btn ghost" data-act="toggleBio">' + (S.settings.bio ? '👆 اثر انگشت: فعال (غیرفعال کنم)' : '👆 فعال‌سازی ورود با اثر انگشت') + '</button>' : '') + '</div>';
+  const left = freeLeft();
+  h += '<div class="card"><div class="ch">⭐ نسخه برنامه</div>' + (licOk ? '<p class="hint">✅ نسخه نامحدود فعال است.</p>' : '<p class="hint">نسخه رایگان: ' + fa(Math.min(usedDocs(), License.FREE_LIMIT)) + ' از ' + fa(License.FREE_LIMIT) + ' فاکتور و سند استفاده شده (' + fa(left) + ' باقی‌مانده).</p>') + '<button class="btn ' + (licOk ? 'ghost' : 'blue') + '" data-act="activate">' + (licOk ? 'جزئیات نسخه نامحدود' : '⭐ فعال‌سازی نسخه نامحدود') + '</button></div>';
   const errN = diagLoad().length;
   h += '<div class="card"><div class="ch">🛠 گزارش خطا</div><p class="hint">اگر برنامه درست کار نکرد یا بسته شد، این گزارش را برای پشتیبانی بفرستید. فقط اطلاعات فنی (نسخه، گوشی، متن خطا) فرستاده می‌شود؛ نام اشخاص و مبالغ در آن نیست.</p><p class="hint">خطاهای ثبت‌شده: <b>' + fa(errN) + '</b></p><div class="row2"><button class="btn green" data-act="reportWa">ارسال در واتساپ</button><button class="btn ghost" data-act="reportShare">کپی / ارسال</button></div>' + (errN ? '<button class="lnk center" data-act="reportClear">پاک‌کردن خطاهای ثبت‌شده</button>' : '') + '</div>';
   h += '<div class="card"><div class="ch">🔎 بررسی سلامت اطلاعات</div><p class="hint">صحت ارتباط تراکنش‌ها، فاکتورها و موجودی انبار را بررسی می‌کند.</p><button class="btn ghost" data-act="audit">اجرای بررسی</button></div>';
@@ -331,7 +343,7 @@ async function restoreFile(e) {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return; const text = await file.text(); const r = Core.parseBackup(text); if (!r.ok) return toast(r.error, true);
   const st = r.state; if (!(await confirmBox('اطلاعات فعلی کاملاً با فایل پشتیبان جایگزین می‌شود (' + fa(st.people.length) + ' شخص، ' + fa(st.invoices.length) + ' فاکتور، ' + fa(st.tx.length) + ' تراکنش). ادامه می‌دهید؟', 'جایگزین کن', true))) return;
   try { await kvSet('state_before_restore', JSON.stringify(S)); } catch (x) { /* ignore */ }
-  const au0 = S.settings.auth; S = Object.assign(Core.emptyState(), st); if (!S.settings.auth && au0) S.settings.auth = au0; applyAppearance(S.settings); await save(); toast('بازیابی انجام شد.'); goHash('#/home'); render();
+  const au0 = S.settings.auth; S = Object.assign(Core.emptyState(), st); if (!S.settings.auth && au0) S.settings.auth = au0; applyAppearance(S.settings); await licCheck(); await save(); toast('بازیابی انجام شد.'); goHash('#/home'); render();
 }
 
 /* ─────────── PIN lock ─────────── */
@@ -365,12 +377,12 @@ const actions = {
   toggleArchived: () => { UI.showArchived = !UI.showArchived; render(); },
   archive: async d => { const p = Core.byId(S.people, +d.p); await done(Core.setArchived(S, p.id, !p.archived), p.archived ? 'فعال شد.' : 'بایگانی شد.'); goHash('#/people'); },
   delPerson: async d => { const p = Core.byId(S.people, +d.p); if (await confirmBox('«' + p.name + '» حذف شود؟', 'حذف', true)) { const r = Core.deletePerson(S, p.id); if (r.ok) { await save(); goHash('#/people'); toast('حذف شد.'); } else toast(r.error, true); } },
-  txForm: d => txForm(d.t, +d.p || null), quickTx: d => txForm(d.t, null), txOpen: d => txOpen(+d.id), transfer: d => transferForm(+d.p || null),
+  txForm: d => { if (gate()) txForm(d.t, +d.p || null); }, quickTx: d => { if (gate()) txForm(d.t, null); }, txOpen: d => txOpen(+d.id), transfer: d => { if (gate()) transferForm(+d.p || null); },
   stmtRange: () => { const sh = sheet('بازه صورت‌حساب', '<form id="sr">' + dateField('f', UI.stmtFrom || Core.periodRange('month').from, 'از تاریخ') + dateField('t', UI.stmtTo || today(), 'تا تاریخ') + '<button class="btn blue" type="submit">اعمال</button></form>'); sh.q('#sr').onsubmit = e => { e.preventDefault(); const f = readDate(sh.q('#sr'), 'f'), t = readDate(sh.q('#sr'), 't'); if (!f || !t) return toast('تاریخ نامعتبر است.', true); if (f > t) return toast('تاریخ شروع بعد از پایان است.', true); UI.stmtFrom = f; UI.stmtTo = t; sh.close(); render(); }; },
   stmtClear: () => { UI.stmtFrom = UI.stmtTo = null; render(); },
   shareStmt: d => shareText(Core.statementText(S, +d.p, UI.stmtFrom, UI.stmtTo)),
   csvStmt: async d => { const L = Core.ledger(S, +d.p, UI.stmtFrom, UI.stmtTo); await exportFile('statement-' + stamp() + '.csv', csvFile([['تاریخ', 'شرح', 'اضافه', 'کم', 'مانده']].concat(L.rows.map(r => [Core.isoToJalali(r.tx.date), r.tx.desc, r.debit || '', r.credit || '', r.balance]))), 'text/csv'); },
-  newInv: d => { const q = d.p ? '?p=' + d.p : ''; const h = '#/new/' + (d.t || 'sale') + q; goHash(h); },
+  newInv: d => { if (!gate()) return; const q = d.p ? '?p=' + d.p : ''; const h = '#/new/' + (d.t || 'sale') + q; goHash(h); },
   pickInvPerson: () => pickList('انتخاب شخص', personItems(), v => { $('#nf [name=pid]').value = v; $('#nf-p').textContent = personName(+v); }, { addNew: 'شخص جدید', onAdd: () => personFormInline() }),
   pickProd: (d, el) => {
     const type = $('#nf [name=type]').value, row = el.closest('.it-row');
@@ -379,6 +391,11 @@ const actions = {
   },
   more: d => { UI[d.k] += { limInv: 100, limProd: 100, limLedger: 200 }[d.k] || 150; render(); },
   bulkProducts: () => bulkProducts(), bulkPeople: () => bulkPeople(),
+  scanProd: () => openScanner({ title: 'اسکن کالا', onCode: t => { const p = findProductByCode(t); if (p) prodOpen(p.id); else confirmBox('کالایی با کد «' + t + '» پیدا نشد. کالای جدید با این بارکد ساخته شود؟', 'ساخت کالا').then(y => { if (y) productForm(null, { barcode: t }); }); } }),
+  labelsAll: () => { const q = UI.prodQ.trim(); const list = S.products.filter(p => !q || matchQ(p.name + ' ' + p.sku + ' ' + (p.barcode || ''), q)); if (list.length > 960) return toast('اول با جستجو فهرست را کوتاه‌تر کنید (حداکثر ۹۶۰ کالا).', true); labelSheet(list); },
+  scanInv: () => openScanner({ title: 'اسکن کالاها', hint: 'کالاها را پشت سر هم اسکن کنید؛ هر کد یک عدد به فاکتور اضافه می‌کند. برای پایان، ✕ را بزنید.', continuous: true, onCode: t => scanIntoInvoice(t) }),
+  activate: () => paywall(),
+  copyDev: async () => { const c = await myDeviceCode(); try { await navigator.clipboard.writeText(c); toast('کد دستگاه کپی شد.'); } catch (e) { shareText(c); } },
   reportWa: async () => { diagWhatsApp(await diagReport()); try { localStorage.setItem('fq_err_seen', String(diagLoad().length)); } catch (e) { /* ignore */ } },
   reportShare: async () => shareText(await diagReport(), 'گزارش خطا'),
   errSeen: () => { try { localStorage.setItem('fq_err_seen', String(diagLoad().length)); } catch (e) { /* ignore */ } render(); },
@@ -394,7 +411,7 @@ const actions = {
   chqDone: async d => { const c = Core.byId(S.cheques, +d.id); const sh = sheet('انجام شد', '<p class="msg">' + esc(c.title) + ' — ' + fmt(c.amount) + ' ریال</p>' + (c.personId ? '<button class="btn blue" data-rec>ثبت در حساب ' + esc(personName(c.personId)) + ' (' + (c.direction === 'receive' ? 'دریافت' : 'پرداخت') + ')</button>' : '') + '<button class="btn ghost" data-only>فقط علامت‌گذاری (بدون ثبت در حساب)</button>'); const go = async rec => { sh.close(); await done(Core.completeCheque(S, c.id, rec, today()), 'ثبت شد.'); }; const r = sh.q('[data-rec]'); if (r) r.onclick = () => go(true); sh.q('[data-only]').onclick = () => go(false); },
   chqReopen: async d => { await done(Core.reopenCheque(S, +d.id), 'بازگردانده شد.'); },
   chqDel: async d => { if (await confirmBox('این مورد حذف شود؟', 'حذف', true)) await done(Core.deleteCheque(S, +d.id), 'حذف شد.'); },
-  addExpense: () => expenseForm(), expOpen: d => expenseForm(Core.byId(S.expenses, +d.id)),
+  addExpense: () => { if (gate()) expenseForm(); }, expOpen: d => expenseForm(Core.byId(S.expenses, +d.id)),
   repApply: () => { const f = readDate(document, 'rf'), t = readDate(document, 'rt'); if (!f || !t) return toast('تاریخ نامعتبر است.', true); if (f > t) return toast('تاریخ شروع بعد از پایان است.', true); UI.repFrom = f; UI.repTo = t; render(); },
   csvPeople: async () => { const b = Core.balances(S); await exportFile('balances-' + stamp() + '.csv', csvFile([['نام', 'تلفن', 'مانده', 'وضعیت']].concat(S.people.map(p => [p.name, p.phone, Math.abs(b[p.id]), sign(b[p.id])]))), 'text/csv'); },
   csvInvoices: async () => { await exportFile('invoices-' + stamp() + '.csv', csvFile([['شماره', 'نوع', 'شخص', 'تاریخ', 'جمع', 'تخفیف', 'پرداخت‌شده', 'مانده', 'توضیحات / سریال']].concat(S.invoices.map(i => { const n = Core.invoiceInfo(S, i); return [i.no, Core.TYPE_FA[i.type], personName(i.personId), Core.isoToJalali(i.date), n.total, n.discount, n.paid, n.remaining, invNotes(i).join(' | ')]; }))), 'text/csv'); },
@@ -499,7 +516,7 @@ async function authRestore(text) {
   const msg = 'این فایل شامل ' + fa(st.people.length) + ' شخص، ' + fa(st.products.length) + ' کالا و ' + fa(st.invoices.length) + ' فاکتور است' + (st.settings.auth ? ' (حساب کاربری «' + st.settings.auth.user + '»)' : '') + '.' + (has ? ' اطلاعات فعلی این گوشی با آن جایگزین می‌شود.' : '') + ' ادامه می‌دهید؟';
   if (!(await confirmBox(msg, 'بازیابی', !!has))) return;
   try { await kvSet('state_before_restore', JSON.stringify(S)); } catch (x) { /* ignore */ }
-  S = Object.assign(Core.emptyState(), st); applyAppearance(S.settings); legacyOk = false; await save();
+  const au0 = S.settings.auth; S = Object.assign(Core.emptyState(), st); if (!S.settings.auth && au0) S.settings.auth = au0; applyAppearance(S.settings); legacyOk = false; await licCheck(); await save();
   if (S.settings.auth) { toast('بازیابی شد. با نام کاربری و رمز قبلی وارد شوید.'); authGate(); }
   else if (S.settings.pinHash) { toast('بازیابی شد. رمز ۴ رقمی قبلی را بزنید.'); authGate(); }
   else { toast('اطلاعات بازیابی شد؛ این پشتیبان حساب کاربری نداشت. یک حساب بسازید.'); authRegister(); }
@@ -572,9 +589,67 @@ function newCode() {
   askPass(async () => { const code = genCode(); S.settings.auth = await mkAuth(S.settings.auth.user, null, undefined, undefined, code, S.settings.auth); await save(); showCode(code, () => { authClose(); toast('کد جدید فعال شد؛ کد قبلی باطل شد.'); }); });
 }
 
+/* ─────────── scanning into the invoice form ─────────── */
+function scanIntoInvoice(text) {
+  const f = $('#nf'); if (!f) return false;
+  const p = findProductByCode(text);
+  if (!p) {
+    const type = f.type.value;
+    if (type === 'purchase') { scanStop(); productForm(null, { inInvoice: true, barcode: /^FQP-/i.test(text) ? '' : text, onSaved: np => { putProductInRow(np); } }); return false; }
+    toast('کالایی با کد «' + text + '» پیدا نشد.', true); return true;
+  }
+  putProductInRow(p); toast('➕ ' + p.name); return true;
+}
+function putProductInRow(p) {
+  const type = $('#nf [name=type]').value, rows = $$('.it-row');
+  const same = rows.find(r => +r.dataset.pid === p.id && !$('[name=sn]', r).value.trim());
+  if (same) { const q = $('[name=qty]', same); q.value = fa(Core.toEn(q.value) * 1 + 1 || 1); calcInvoice(); return; }
+  let row = rows.find(r => !r.dataset.pid); if (!row) { addRow(); const all = $$('.it-row'); row = all[all.length - 1]; }
+  row.dataset.pid = p.id; $('.pick', row).textContent = p.name; const pr = $('[name=price]', row);
+  if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fa(Core.group(dp)); }
+  const stk = Core.replay(S).stock[p.id]; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(stk ? stk.stock : 0) + ' ' + p.unit; calcInvoice();
+}
+
+/* ─────────── free limit & unlimited version ─────────── */
+let licOk = false, devCodeCache = null;
+async function myDeviceCode() {
+  if (devCodeCache) return devCodeCache;
+  let raw = null;
+  try { const P = window.Capacitor && window.Capacitor.Plugins; if (isNative() && P && P.Device && P.Device.getId) { const r = await P.Device.getId(); raw = r && (r.identifier || r.uuid); } } catch (e) { /* ignore */ }
+  if (!raw) { try { raw = await kvGet('device_id'); } catch (e) { /* ignore */ } if (!raw) { raw = 'w-' + Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join(''); try { await kvSet('device_id', raw); } catch (e) { /* ignore */ } } }
+  devCodeCache = await License.deviceCodeFrom(raw); return devCodeCache;
+}
+async function licCheck() {
+  const l = S.settings.license; licOk = false;
+  if (l && l.code) licOk = await License.verify(l.code, await myDeviceCode());
+  return licOk;
+}
+function usedDocs() { let ls = 0; try { ls = +localStorage.getItem('fq_used') || 0; } catch (e) { /* ignore */ } return Math.max(License.countDocs(S), S.settings.usedDocs || 0, ls); }
+function bumpUsage() { const n = usedDocs(); S.settings.usedDocs = n; try { localStorage.setItem('fq_used', String(n)); } catch (e) { /* ignore */ } }
+function freeLeft() { return Math.max(0, License.FREE_LIMIT - usedDocs()); }
+// call before creating a new invoice / receipt / payment / transfer / expense
+function gate() { if (licOk || freeLeft() > 0) return true; paywall(true); return false; }
+async function paywall(blocked) {
+  const dev = await myDeviceCode(), used = usedDocs();
+  const msg = 'سلام، درخواست فعال‌سازی نسخه نامحدود حسابداری فیکس کوییک را دارم.\nکد دستگاه: ' + dev + '\n(تصویر رسید واریز را هم می‌فرستم)';
+  const sh = sheet(licOk ? 'نسخه نامحدود' : 'فعال‌سازی نسخه نامحدود', licOk ? '<div class="alert">✅ نسخه نامحدود روی این گوشی فعال است. از همه امکانات بدون محدودیت استفاده کنید.</div><p class="hint">کد دستگاه: <b class="ltr">' + dev + '</b></p>' :
+    (blocked ? '<div class="alert warn">ثبت رایگان شما (' + fa(License.FREE_LIMIT) + ' فاکتور و سند) تمام شده است. اطلاعات شما سالم است و می‌توانید همه را ببینید، پشتیبان بگیرید و چاپ کنید؛ برای ثبت جدید، نسخه نامحدود را فعال کنید.</div>' : '<p class="hint">تا الان ' + fa(Math.min(used, License.FREE_LIMIT)) + ' از ' + fa(License.FREE_LIMIT) + ' سند رایگان استفاده شده است.</p>') +
+    '<div class="paybox"><div class="step"><b>۱</b><span>مبلغ <b>' + esc(License.PRICE_TEXT) + '</b> را به کارت زیر واریز کنید:<br><b class="ltr cardno">' + esc(License.CARD_NO) + '</b><br>به نام ' + esc(License.CARD_OWNER) + ' · ' + esc(License.CARD_BANK) + '<br><button type="button" class="lnk" id="pw-card">کپی شماره کارت</button></span></div>' +
+    '<div class="step"><b>۲</b><span>تصویر رسید و کد دستگاه زیر را در واتساپ بفرستید:<br><b class="ltr devc">' + dev + '</b></span></div><div class="row2"><button type="button" class="btn green" id="pw-wa">ارسال در واتساپ</button><button type="button" class="btn ghost" data-act="copyDev">کپی کد دستگاه</button></div>' +
+    '<div class="step"><b>۳</b><span>کد فعال‌سازی را که برایتان فرستاده می‌شود اینجا بچسبانید:</span></div><textarea class="inp ltr" id="pw-code" rows="3" style="height:auto;padding:10px" placeholder="XXXXX-XXXXX-…"></textarea><button type="button" class="btn blue" id="pw-ok">فعال‌سازی</button></div><p class="hint">کد فعال‌سازی فقط روی همین گوشی کار می‌کند.</p>');
+  if (licOk) return;
+  sh.q('#pw-card').onclick = async () => { try { await navigator.clipboard.writeText(License.CARD_NO.replace(/-/g, '')); toast('شماره کارت کپی شد.'); } catch (e) { toast(License.CARD_NO); } };
+  sh.q('#pw-wa').onclick = () => { const a = document.createElement('a'); a.href = 'https://wa.me/' + License.SUPPORT_WA + '?text=' + encodeURIComponent(msg); a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
+  sh.q('#pw-ok').onclick = async () => {
+    const code = sh.q('#pw-code').value; if (!License.normCode(code)) return toast('کد فعال‌سازی را وارد کنید.', true);
+    if (await License.verify(code, dev)) { S.settings.license = { code: License.normCode(code), dev, at: Date.now() }; licOk = true; await save(); sh.close(); alertBox('🎉 فعال شد', 'نسخه نامحدود روی این گوشی فعال شد. از اعتماد شما سپاسگزاریم.'); render(); }
+    else toast('کد فعال‌سازی درست نیست یا برای گوشی دیگری صادر شده است.', true);
+  };
+}
+
 async function boot() {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
-  await loadState(); render(); $('#splash').remove();
+  await loadState(); try { await licCheck(); } catch (e) { /* ignore */ } render(); $('#splash').remove();
   authGate();
   let hiddenAt = 0; document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > 60e3 && !lockedNow) authGate(true); });
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isNative()) navigator.serviceWorker.register('sw.js').catch(() => { });

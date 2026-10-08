@@ -240,14 +240,16 @@
   Core.addProduct = function (st, d) {
     const name = String(d.name || '').trim(); if (!name) return err('نام کالا را وارد کنید.');
     if (st.products.some(p => p.name === name)) return err('کالایی با این نام وجود دارد.');
-    const p = { id: nid(st), name, sku: String(d.sku || '').trim(), unit: String(d.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(d.minStock) || 0), salePrice: Math.max(0, Math.round(d.salePrice) || 0), buyPrice: Math.max(0, Math.round(d.buyPrice) || 0) };
+    const bc = String(d.barcode || '').trim(); if (bc && st.products.some(p => p.barcode === bc)) return err('این بارکد برای کالای دیگری ثبت شده است.');
+    const p = { id: nid(st), name, barcode: bc, sku: String(d.sku || '').trim(), unit: String(d.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(d.minStock) || 0), salePrice: Math.max(0, Math.round(d.salePrice) || 0), buyPrice: Math.max(0, Math.round(d.buyPrice) || 0) };
     st.products.push(p); return ok({ product: p });
   };
   Core.editProduct = function (st, id, d) {
     const p = byId(st.products, id); if (!p) return err('کالا پیدا نشد.');
     const name = String(d.name || '').trim(); if (!name) return err('نام کالا را وارد کنید.');
     if (st.products.some(x => x.id !== id && x.name === name)) return err('کالایی با این نام وجود دارد.');
-    Object.assign(p, { name, sku: String(d.sku || '').trim(), unit: String(d.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(d.minStock) || 0), salePrice: Math.max(0, Math.round(d.salePrice) || 0), buyPrice: Math.max(0, Math.round(d.buyPrice) || 0) });
+    const bc = String(d.barcode || '').trim(); if (bc && st.products.some(x => x.id !== id && x.barcode === bc)) return err('این بارکد برای کالای دیگری ثبت شده است.');
+    Object.assign(p, { name, barcode: bc, sku: String(d.sku || '').trim(), unit: String(d.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(d.minStock) || 0), salePrice: Math.max(0, Math.round(d.salePrice) || 0), buyPrice: Math.max(0, Math.round(d.buyPrice) || 0) });
     return ok();
   };
   Core.productUsed = (st, id) => st.invoices.some(i => i.items.some(l => l.productId === id)) || st.adjusts.some(a => a.productId === id);

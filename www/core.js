@@ -288,7 +288,7 @@
   /* ───────────── smart product categories ─────────────
    * A product's category is guessed from its name (rules below) unless the user picked one by hand (p.category).
    * The guess is computed on the fly, so better rules apply to every product automatically. */
-  Core.norm = s => Core.toEn(String(s == null ? '' : s)).replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[ۀة]/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/[‌‏‎_\-()\/،,+]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
+  Core.norm = s => Core.toEn(String(s == null ? '' : s)).replace(/[يىئ]/g, 'ی').replace(/ك/g, 'ک').replace(/[ۀة]/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/[‌‏‎_\-()\/،,+]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
   Core.OTHER_CAT = 'سایر لوازم جانبی';
   // [category, keywords, strength]  strength: 1 strong (wins even when it comes later in the name), 0 normal, -1 weak (only when nothing else matches)
   const CAT_RULES = [
@@ -345,6 +345,134 @@
     return [...m.entries()].map(([cat, n]) => ({ cat, n })).sort((a, b) => rank(a.cat) - rank(b.cat) || a.cat.localeCompare(b.cat, 'fa'));
   };
   Core.catRank = c => { const i = Core.CATS.indexOf(c); return c === Core.OTHER_CAT ? 999 : i < 0 ? 900 : i; };
+
+  /* ───────────── insights (all computed from the data, cached per data version) ───────────── */
+  const memo = (fn) => { let k = null, v = null; return (st, ...args) => { const key = [st.invoices, st.invoices.length, st.invoices[st.invoices.length - 1], st.adjusts, st.adjusts.length, st.products, st.products.length].concat(args); if (k && k.length === key.length && k.every((x, i) => x === key[i])) return v; k = key; v = fn(st, ...args); return v; }; };
+  const invOrder = (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id;
+  // last price per (type, person, product) and how often each person bought each product
+  const priceIndex = memo(st => {
+    const last = new Map(), freq = new Map();
+    st.invoices.slice().sort(invOrder).forEach(inv => inv.items.forEach(l => {
+      last.set(inv.type + '|' + inv.personId + '|' + l.productId, { price: l.price, date: inv.date, no: inv.no });
+      const fk = inv.type + '|' + inv.personId, m = freq.get(fk) || new Map(); m.set(l.productId, (m.get(l.productId) || 0) + 1); freq.set(fk, m);
+    }));
+    return { last, freq };
+  });
+  // the price this person last paid/got for this product on the same kind of invoice (sale ↔ sale, purchase ↔ purchase)
+  Core.lastPrice = function (st, type, personId, productId) { if (!personId || !productId) return null; return priceIndex(st).last.get(type + '|' + personId + '|' + productId) || null; };
+  Core.frequentProducts = function (st, type, personId, n) {
+    const m = personId && priceIndex(st).freq.get(type + '|' + personId); if (!m) return [];
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n || 8).map(x => x[0]).filter(id => byId(st.products, id));
+  };
+  // sales speed per product over the last `days`, plus last sale / last incoming date
+  const salesStats = memo((st, today, days) => {
+    const from = Core.addDays(today, -days + 1), m = {};
+    const g = id => m[id] || (m[id] = { sold: 0, lastSale: null, lastIn: null });
+    st.invoices.forEach(inv => inv.items.forEach(l => {
+      const x = g(l.productId);
+      if (inv.type === 'sale') { if (inv.date >= from && inv.date <= today) x.sold += l.qty; if (!x.lastSale || inv.date > x.lastSale) x.lastSale = inv.date; }
+      else if (inv.type === 'sale_return') { if (inv.date >= from && inv.date <= today) x.sold -= l.qty; }
+      else if (inv.type === 'purchase') { if (!x.lastIn || inv.date > x.lastIn) x.lastIn = inv.date; }
+    }));
+    st.adjusts.forEach(a => { if (a.qty > 0) { const x = g(a.productId); if (!x.lastIn || a.date > x.lastIn) x.lastIn = a.date; } });
+    return m;
+  });
+  // o: { days: window for sales speed, lead: days you need to restock, cover: days a purchase should last, stale: days without sale }
+  Core.stockInsights = function (st, today, o) {
+    o = Object.assign({ days: 60, lead: 7, cover: 30, stale: 60 }, o || {}); today = today || Core.todayISO();
+    const ss = salesStats(st, today, o.days), rows = Core.productStats(st), reorder = [], stale = [];
+    for (const x of rows) {
+      const s = ss[x.product.id] || { sold: 0, lastSale: null, lastIn: null }, rate = Math.max(0, s.sold) / o.days;
+      const autoMin = rate > 0 ? Math.max(1, Math.ceil(rate * o.lead)) : 0, min = x.product.minStock > 0 ? x.product.minStock : autoMin;
+      const daysLeft = rate > 0 ? x.stock / rate : Infinity;
+      x.rate = rate; x.autoMin = autoMin; x.min = min; x.daysLeft = daysLeft; x.lastSale = s.lastSale; x.lastIn = s.lastIn;
+      if (rate > 0 && (x.stock <= min || daysLeft <= o.lead)) reorder.push(Object.assign(x, { suggest: Math.max(1, Math.ceil(rate * o.cover - Math.max(0, x.stock))) }));
+      const idle = s.lastSale ? Core.diffDays(s.lastSale, today) : (s.lastIn ? Core.diffDays(s.lastIn, today) : 0);
+      if (x.stock > 0 && idle >= o.stale && (!s.lastIn || Core.diffDays(s.lastIn, today) >= o.stale)) stale.push(Object.assign(x, { idle }));
+    }
+    reorder.sort((a, b) => a.daysLeft - b.daysLeft || b.rate - a.rate);
+    stale.sort((a, b) => b.value - a.value);
+    return { reorder, stale, staleValue: stale.reduce((t, x) => t + x.value, 0) };
+  };
+  // effective low-stock limit: the one the user set, otherwise ~a week of sales
+  Core.autoMins = function (st, today) { const ss = salesStats(st, today || Core.todayISO(), 60), m = {}; for (const id in ss) { const r = Math.max(0, ss[id].sold) / 60; if (r > 0) m[id] = Math.max(1, Math.ceil(r * 7)); } return m; };
+  Core.prevRange = function (from, to) { const n = Core.diffDays(from, to) + 1; return { from: Core.addDays(from, -n), to: Core.addDays(from, -1) }; };
+  Core.pctChange = (now, before) => (before ? Math.round((now - before) / Math.abs(before) * 100) : (now ? null : 0));
+  // revenue / cost / profit per product category (sales minus sale returns, VAT excluded)
+  Core.categoryProfit = function (st, from, to) {
+    const m = {};
+    Core.replay(st, h => {
+      if (!h.invoiceId || (from && h.date < from) || (to && h.date > to)) return;
+      if (h.type !== 'sale' && h.type !== 'sale_return') return;
+      const p = byId(st.products, h.productId), c = p ? Core.catOf(p) : '—', q = Math.abs(h.delta), sg = h.type === 'sale' ? 1 : -1;
+      const x = m[c] || (m[c] = { cat: c, qty: 0, rev: 0, cost: 0 }); x.qty += sg * q; x.rev += sg * q * h.unit; x.cost += sg * q * h.avg;
+    });
+    return Object.values(m).map(x => ({ cat: x.cat, qty: r3(x.qty), rev: Math.round(x.rev), cost: Math.round(x.cost), profit: Math.round(x.rev - x.cost), margin: x.rev ? Math.round((x.rev - x.cost) / x.rev * 100) : 0 })).sort((a, b) => b.profit - a.profit);
+  };
+  // cost of each sale line (for the margin warning on the invoice form): the current average cost
+  Core.unitCost = function (st, productId) { const s = Core.replay(st).stock[productId]; return s ? s.avg : 0; };
+
+  /* ───────────── serial numbers / IMEI ───────────── */
+  Core.luhnOk = function (d) { d = Core.toEn(d); if (!/^\d{15}$/.test(d)) return false; let s = 0; for (let i = 0; i < 15; i++) { let x = +d[14 - i]; if (i % 2) { x *= 2; if (x > 9) x -= 9; } s += x; } return s % 10 === 0; };
+  // serial-like tokens in a note: 6–20 letters/digits with at least 4 digits (IMEI, S/N)
+  Core.extractSerials = function (text) { const out = []; Core.toEn(String(text || '')).toUpperCase().split(/[^A-Z0-9]+/).forEach(t => { if (t.length >= 6 && t.length <= 20 && (t.match(/\d/g) || []).length >= 4 && out.indexOf(t) < 0) out.push(t); }); return out; };
+  const serialIndex = memo(st => {
+    const m = new Map();
+    st.invoices.slice().sort(invOrder).forEach(inv => inv.items.forEach(l => {
+      Core.extractSerials(l.note).forEach(sn => { const a = m.get(sn) || []; a.push({ serial: sn, date: inv.date, type: inv.type, invoiceId: inv.id, no: inv.no, personId: inv.personId, productId: l.productId, price: l.price }); m.set(sn, a); });
+    }));
+    return m;
+  });
+  Core.SERIAL_STATE = { purchase: 'در انبار', sale_return: 'در انبار (مرجوع از مشتری)', sale: 'فروخته شده', purchase_return: 'برگشت به تأمین‌کننده' };
+  // q: whole serial, or its last 4+ digits
+  Core.serialHistory = function (st, q, limit) {
+    q = Core.toEn(String(q || '')).toUpperCase().replace(/[^A-Z0-9]/g, ''); if (q.length < 4) return [];
+    const out = [];
+    for (const [sn, ev] of serialIndex(st)) {
+      if (!(sn === q || sn.endsWith(q) || (q.length >= 6 && sn.includes(q)))) continue;
+      const last = ev[ev.length - 1]; let buy = null, sale = null;
+      ev.forEach(e => { if (e.type === 'purchase') buy = e; if (e.type === 'sale') sale = e; });
+      out.push({ serial: sn, events: ev, state: Core.SERIAL_STATE[last.type], inStock: last.type === 'purchase' || last.type === 'sale_return', productId: last.productId, profit: buy && sale && sale.date >= buy.date ? sale.price - buy.price : null, luhn: sn.length === 15 && /^\d+$/.test(sn) ? Core.luhnOk(sn) : null });
+      if (out.length >= (limit || 50)) break;
+    }
+    return out.sort((a, b) => (a.serial === q ? -1 : 0) - (b.serial === q ? -1 : 0));
+  };
+  // warning for a serial typed on an invoice line (excluding the invoice being edited)
+  Core.serialWarning = function (st, serial, type, editId) {
+    const ev = (serialIndex(st).get(serial) || []).filter(e => e.invoiceId !== editId); if (!ev.length) return null;
+    const last = ev[ev.length - 1], who = (byId(st.people, last.personId) || {}).name || '—', where = ' (فاکتور ' + Core.TYPE_FA[last.type] + ' ' + last.no + '، ' + who + '، ' + Core.fmtDate(last.date) + ')';
+    if (type === 'sale' && last.type === 'sale') return 'سریال ' + serial + ' قبلاً فروخته شده است' + where + '.';
+    if (type === 'purchase' && (last.type === 'purchase' || last.type === 'sale_return')) return 'سریال ' + serial + ' همین الان در انبار است' + where + '.';
+    if (type === 'sale_return' && last.type !== 'sale') return 'سریال ' + serial + ' فروخته نشده که مرجوع شود' + where + '.';
+    return null;
+  };
+
+  /* ───────────── smart search helpers ───────────── */
+  const FINGLISH = { iphone: 'ایفون', ifon: 'ایفون', aifon: 'ایفون', apple: 'اپل', samsung: 'سامسونگ', galaxy: 'گلکسی', xiaomi: 'شیائومی', redmi: 'ردمی', poco: 'پوکو', pro: 'پرو', max: 'مکس', plus: 'پلاس', mini: 'مینی', ultra: 'الترا', cable: 'کابل', kabl: 'کابل', charger: 'شارژر', sharjer: 'شارژر', adapter: 'اداپتور', case: 'قاب', ghab: 'قاب', cover: 'کاور', glass: 'گلس', airpods: 'ایرپاد', airpod: 'ایرپاد', watch: 'واچ', ipad: 'ایپد', gig: 'گیگ', gb: 'گیگ', tb: 'ترابایت', powerbank: 'پاوربانک', holder: 'هولدر', speaker: 'اسپیکر', handsfree: 'هندزفری', headphone: 'هدفون', magsafe: 'مگ سیف', mcdodo: 'مک دودو', anker: 'انکر', lightning: 'لایتنینگ' };
+  Core.ALIASES = { 'ایرپاد': 'airpods', 'ایفون': 'iphone', 'اولترا': 'الترا', 'الترا': 'اولترا', 'تایپ سی': 'c', 'شارژ': 'شارژر' };
+  // query → normalised words; letters/digits split ("iphone13" → "iphone 13"); Finglish words also get their Persian form
+  Core.searchWords = function (q) {
+    const n = Core.norm(q).replace(/([a-z])(\d)/g, '$1 $2').replace(/(\d)([a-z])/g, '$1 $2').replace(/([؀-ۿ])(\d)/g, '$1 $2').replace(/(\d)([؀-ۿ])/g, '$1 $2');
+    return n.split(' ').filter(Boolean).map(w => [w].concat(FINGLISH[w] ? [FINGLISH[w]] : [], Core.ALIASES[w] ? [Core.ALIASES[w]] : []));
+  };
+  const lev1 = (a, b, max) => { if (Math.abs(a.length - b.length) > max) return false; const d = []; for (let i = 0; i <= a.length; i++) { d[i] = [i]; } for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) { let rowMin = Infinity; for (let j = 1; j <= b.length; j++) { d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); rowMin = Math.min(rowMin, d[i][j]); } if (rowMin > max) return false; } return d[a.length][b.length] <= max; };
+  const normCache = new Map();
+  // 0 = no match; higher = better. Every query word must match a word of the text (prefix, inside, or a small typo)
+  Core.fuzzyScore = function (text, words) {
+    if (!words.length) return 0; let c = normCache.get(text); if (!c) { if (normCache.size > 60000) normCache.clear(); const t0 = Core.norm(text); c = [t0, t0.split(' ')]; normCache.set(text, c); } const t = c[0], tw = c[1]; let score = 0;
+    for (const alts of words) {
+      let best = 0;
+      for (const w of alts) {
+        for (const x of tw) {
+          if (x === w) best = Math.max(best, 4); else if (x.startsWith(w)) best = Math.max(best, 3); else if (w.length >= 3 && x.includes(w)) best = Math.max(best, 2);
+          else if (w.length >= 4 && !/^\d+$/.test(w) && lev1(w, x.slice(0, w.length + 1), w.length >= 7 ? 2 : 1)) best = Math.max(best, 1);
+        }
+        if (best < 2 && w.length >= 3 && t.includes(w)) best = Math.max(best, 2);
+      }
+      if (!best) return 0; score += best;
+    }
+    return score + (words[0].some(w => t.startsWith(w)) ? 1 : 0);
+  };
 
   /* products backup (export / import), for moving or rebuilding the warehouse */
   Core.exportProducts = function (st) {
@@ -439,18 +567,18 @@
           if (inv.type === 'purchase') {
             const base = Math.max(s.stock, 0), ns = r3(base + l.qty);
             s.avg = ns > 0 ? (base * s.avg + l.net) / ns : s.avg; s.stock = r3(s.stock + l.qty);
-            if (hook) hook({ date: inv.date, productId: l.productId, delta: l.qty, stock: s.stock, avg: s.avg, label: 'خرید - فاکتور ' + inv.no, invoiceId: inv.id, unit: l.net / l.qty });
+            if (hook) hook({ date: inv.date, productId: l.productId, delta: l.qty, stock: s.stock, avg: s.avg, label: 'خرید - فاکتور ' + inv.no, invoiceId: inv.id, type: inv.type, unit: l.net / l.qty });
           } else if (inv.type === 'sale') {
             if (s.stock < l.qty - 1e-9) errors.push({ invoiceId: inv.id, productId: l.productId, need: l.qty, have: s.stock });
             c += Math.round(l.qty * s.avg); s.stock = r3(s.stock - l.qty);
-            if (hook) hook({ date: inv.date, productId: l.productId, delta: -l.qty, stock: s.stock, avg: s.avg, label: 'فروش - فاکتور ' + inv.no, invoiceId: inv.id, unit: l.net / l.qty });
+            if (hook) hook({ date: inv.date, productId: l.productId, delta: -l.qty, stock: s.stock, avg: s.avg, label: 'فروش - فاکتور ' + inv.no, invoiceId: inv.id, type: inv.type, unit: l.net / l.qty });
           } else if (inv.type === 'sale_return') {
             c -= Math.round(l.qty * s.avg); s.stock = r3(s.stock + l.qty);
-            if (hook) hook({ date: inv.date, productId: l.productId, delta: l.qty, stock: s.stock, avg: s.avg, label: 'برگشت از فروش - فاکتور ' + inv.no, invoiceId: inv.id, unit: l.net / l.qty });
+            if (hook) hook({ date: inv.date, productId: l.productId, delta: l.qty, stock: s.stock, avg: s.avg, label: 'برگشت از فروش - فاکتور ' + inv.no, invoiceId: inv.id, type: inv.type, unit: l.net / l.qty });
           } else if (inv.type === 'purchase_return') {
             if (s.stock < l.qty - 1e-9) errors.push({ invoiceId: inv.id, productId: l.productId, need: l.qty, have: s.stock });
             c += Math.round(l.qty * s.avg) - l.net; s.stock = r3(s.stock - l.qty);
-            if (hook) hook({ date: inv.date, productId: l.productId, delta: -l.qty, stock: s.stock, avg: s.avg, label: 'برگشت از خرید - فاکتور ' + inv.no, invoiceId: inv.id, unit: l.net / l.qty });
+            if (hook) hook({ date: inv.date, productId: l.productId, delta: -l.qty, stock: s.stock, avg: s.avg, label: 'برگشت از خرید - فاکتور ' + inv.no, invoiceId: inv.id, type: inv.type, unit: l.net / l.qty });
           }
         }
         cogs[inv.id] = c;
@@ -676,7 +804,8 @@
   Core.inventoryValue = function (st) { const rp = Core.replay(st); let v = 0; for (const id in rp.stock) v += Math.max(rp.stock[id].stock, 0) * rp.stock[id].avg; return Math.round(v); };
   Core.productStats = function (st) {
     const rp = Core.replay(st);
-    return st.products.map(p => { const s = rp.stock[p.id] || { stock: 0, avg: 0 }; return { product: p, stock: s.stock, avg: Math.round(s.avg), value: Math.round(Math.max(s.stock, 0) * s.avg), low: p.minStock > 0 && s.stock <= p.minStock }; });
+    const am = Core.autoMins(st);
+    return st.products.map(p => { const s = rp.stock[p.id] || { stock: 0, avg: 0 }, min = p.minStock > 0 ? p.minStock : (am[p.id] || 0); return { product: p, stock: s.stock, avg: Math.round(s.avg), value: Math.round(Math.max(s.stock, 0) * s.avg), low: min > 0 && s.stock <= min, minAuto: !(p.minStock > 0) && !!am[p.id] }; });
   };
   Core.productMoves = function (st, pid) { const rows = []; Core.replay(st, m => { if (m.productId === pid) rows.push(m); }); return rows; };
   Core.topPeople = function (st, type, from, to, n) {

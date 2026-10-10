@@ -17,20 +17,22 @@
   <header class="top">
     <button id="back" class="hb" data-act="go" hidden aria-label="بازگشت">›</button>
     <h1 id="title">حسابداری</h1>
+    <div id="hdate" class="hdate" aria-label="تاریخ امروز"></div>
     <img class="logo" src="logo.png" alt="Fix Quick">
   </header>
   <main id="main"></main>
   <button id="fab" class="fab" hidden aria-label="افزودن"></button>
   <nav class="nav">
-    <button data-nav="home" data-act="go" data-h="#/home"><i>🏠</i><span>خانه</span></button>
-    <button data-nav="people" data-act="go" data-h="#/people"><i>👥</i><span>اشخاص</span></button>
-    <button data-nav="invoices" data-act="go" data-h="#/invoices"><i>🧾</i><span>فاکتورها</span></button>
-    <button data-nav="products" data-act="go" data-h="#/products"><i>📦</i><span>انبار</span></button>
-    <button data-nav="more" data-act="go" data-h="#/more"><i>☰</i><span>بیشتر</span></button>
+    <button data-nav="home" data-act="go" data-h="#/home"><i data-ic="home"></i><span>خانه</span></button>
+    <button data-nav="people" data-act="go" data-h="#/people"><i data-ic="users"></i><span>اشخاص</span></button>
+    <button data-nav="invoices" data-act="go" data-h="#/invoices"><i data-ic="receipt"></i><span>فاکتورها</span></button>
+    <button data-nav="products" data-act="go" data-h="#/products"><i data-ic="package"></i><span>انبار</span></button>
+    <button data-nav="more" data-act="go" data-h="#/more"><i data-ic="grid"></i><span>بیشتر</span></button>
   </nav>
 </div>
 <script src="diag.js"></script>
 <script src="core.js"></script>
+<script src="icons.js"></script>
 <script src="base.js"></script>
 <script src="license.js"></script>
 <script src="qrcode.js"></script>

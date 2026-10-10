@@ -26,8 +26,9 @@
   const MAX_MONEY = 9e12;
   Core.parseMoney = function (s) {
     const n = Core.parseNum(s);
-    if (!isFinite(n) || n < 0 || n > MAX_MONEY) return NaN;
-    return Math.round(n);
+    if (!isFinite(n) || n < 0) return NaN;
+    const r = Math.round(n * (Core.unit === 'toman' ? 10 : 1));
+    return r > MAX_MONEY ? NaN : r;
   };
   Core.parseQty = function (s) {
     const n = Core.parseNum(s);
@@ -40,7 +41,12 @@
     s = s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     return (neg ? '\u200e-' : '') + s;
   };
-  Core.fmt = n => Core.toFa(Core.group(n));
+  // display unit: amounts are always stored in Rial; Toman only changes what is shown and typed (÷10 / ×10)
+  Core.unit = 'rial';
+  Core.setUnit = u => { Core.unit = u === 'toman' ? 'toman' : 'rial'; };
+  Core.unitName = u => ((u || Core.unit) === 'toman' ? 'تومان' : 'ریال');
+  Core.shown = n => (Core.unit === 'toman' ? (Number(n) || 0) / 10 : n);
+  Core.fmt = n => Core.toFa(Core.group(Core.shown(n)));
   Core.fmtQty = function (q) {
     q = Math.round((Number(q) || 0) * 1000) / 1000;
     const parts = String(q).split('.'); parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -97,6 +103,8 @@
   Core.fmtDate = iso => (iso ? Core.toFa(Core.isoToJalali(iso)) : '—');
   // 0 = Saturday … 6 = Friday
   Core.weekdayIdx = function (iso) { const [y, m, d] = iso.split('-').map(Number); return mod(g2d(y, m, d) + 2, 7); };
+  // «شنبه ۱۹ مهر ۱۴۰۵»
+  Core.longDate = function (iso) { const p = Core.isoToParts(iso); return { wd: Core.WEEKDAYS[Core.weekdayIdx(iso)], date: Core.toFa(p.jd + ' ' + Core.MONTHS[p.jm - 1] + ' ' + p.jy) }; };
   Core.validIso = function (iso) {
     if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
     const [y, m, d] = iso.split('-').map(Number); if (m < 1 || m > 12 || d < 1) return false;
@@ -582,6 +590,21 @@
     Core.replay(st).errors.forEach(e => p.push('موجودی منفی: ' + stockErrText(st, e)));
     return p;
   };
+  // "start fresh": clears documents but never people or products. o: { invoices, adjusts, people, expenses, cheques }
+  // returns a new state (the original is untouched) or an error when the result would be inconsistent (e.g. sales left without stock)
+  Core.resetData = function (st, o) {
+    o = o || {}; const nx = Object.assign({}, st);
+    const gone = new Set(o.invoices ? st.invoices.map(i => i.id) : []);
+    if (o.invoices) nx.invoices = [];
+    if (o.adjusts) nx.adjusts = [];
+    if (o.expenses) nx.expenses = [];
+    nx.tx = st.tx.filter(t => !(t.ref != null ? gone.has(t.ref) : o.people));
+    const keptTx = new Set(nx.tx.map(t => t.id));
+    nx.cheques = o.cheques ? [] : st.cheques.map(c => { if (c.txId && !keptTx.has(c.txId)) { const d = Object.assign({}, c); delete d.txId; return d; } return c; });
+    const probs = Core.audit(nx);
+    if (probs.length) return err('با این انتخاب، اطلاعات ناسازگار می‌شود (' + probs[0] + '). ' + (o.adjusts && !o.invoices ? 'اگر ورود کالا را پاک می‌کنید، فاکتورها را هم انتخاب کنید.' : ''));
+    return ok({ state: nx, removed: { invoices: st.invoices.length - nx.invoices.length, tx: st.tx.length - nx.tx.length, adjusts: st.adjusts.length - nx.adjusts.length, expenses: st.expenses.length - nx.expenses.length, cheques: st.cheques.length - nx.cheques.length } });
+  };
   Core.exportJSON = function (st) { return JSON.stringify({ app: 'fixquick-accounting', version: 1, exportedAt: new Date().toISOString(), data: st }); };
   Core.parseBackup = function (text) {
     let o; try { o = JSON.parse(text); } catch (e) { return err('فایل پشتیبان معتبر نیست (JSON خراب).'); }
@@ -604,7 +627,7 @@
     const who = v => v > 0 ? ' (شما بدهکارید)' : v < 0 ? ' (ما بدهکاریم)' : '';
     if (from) lines.push('مانده از قبل: ' + Core.fmt(Math.abs(L.carry)) + who(L.carry));
     L.rows.forEach(r => lines.push(Core.fmtDate(r.tx.date) + ' | ' + (r.tx.desc || '—') + ' | ' + (r.debit ? 'اضافه ' + Core.fmt(r.debit) : 'کم ' + Core.fmt(r.credit)) + ' | مانده ' + Core.fmt(Math.abs(r.balance)) + who(r.balance)));
-    lines.push('', 'مانده نهایی: ' + Core.fmt(Math.abs(L.closing)) + ' ریال ' + (L.closing > 0 ? '(شما بدهکارید)' : L.closing < 0 ? '(ما بدهکاریم)' : '(تسویه)'));
+    lines.push('', 'مانده نهایی: ' + Core.fmt(Math.abs(L.closing)) + ' ' + Core.unitName() + ' ' + (L.closing > 0 ? '(شما بدهکارید)' : L.closing < 0 ? '(ما بدهکاریم)' : '(تسویه)'));
     return lines.join('\n');
   };
 

@@ -20,14 +20,14 @@ async function drawInvoicePages(inv) {
   const txt = (s, x, yy, align, color) => { ctx.textAlign = align || 'right'; ctx.fillStyle = color || ink; ctx.fillText(String(s), x, yy); };
   // columns (right → left): ردیف | شرح | تعداد | قیمت | جمع
   const colR = [R, R - 70, R - 70 - 430, R - 70 - 430 - 150, R - 70 - 430 - 150 - 190, L];
-  const colHdr = ['ردیف', 'شرح کالا', 'تعداد', 'قیمت واحد (ریال)', 'جمع (ریال)'];
+  const colHdr = ['ردیف', 'شرح کالا', 'تعداد', 'قیمت واحد (' + UNIT() + ')', 'جمع (' + UNIT() + ')'];
   const newPage = first => {
     cv = document.createElement('canvas'); cv.width = W; cv.height = H; ctx = cv.getContext('2d'); ctx.direction = 'rtl';
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); pages.push(cv); y = M;
     // header
     if (logo) { const lh = 92, lw = lh * logo.width / logo.height; ctx.drawImage(logo, L, y, lw, lh); }
     font(46, 800); txt('فاکتور ' + Core.TYPE_FA[inv.type], R, y + 44, 'right', brand);
-    font(26, 400); txt((S.settings.business || 'فیکس کوییک'), R, y + 86, 'right', mut);
+    const me = sellerName(); if (me) { font(27, 700); txt((isSaleSide ? 'فروشنده: ' : 'خریدار: ') + me, R, y + 88, 'right', ink); }
     y += 112; ctx.strokeStyle = brand; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke(); y += 28;
     if (first) {
       font(28, 700); txt((isSaleSide ? 'مشتری: ' : 'تأمین‌کننده: ') + person.name + (person.phone ? '   ' + Core.toFa(person.phone) : ''), R, y + 28);
@@ -43,7 +43,7 @@ async function drawInvoicePages(inv) {
   };
   const footer = n => {
     const c = pages[n]; const x = c.getContext('2d'); x.direction = 'rtl'; x.strokeStyle = line; x.lineWidth = 2; x.beginPath(); x.moveTo(L, H - 96); x.lineTo(R, H - 96); x.stroke();
-    x.font = '400 22px ' + FONT; x.fillStyle = mut; x.textAlign = 'center'; x.fillText('Fix Quick  ·  fixq.ir  ·  ' + Core.toFa('09999917199') + (pages.length > 1 ? '  ·  صفحه ' + Core.toFa(n + 1) + ' از ' + Core.toFa(pages.length) : ''), W / 2, H - 56);
+    x.font = '400 22px ' + FONT; x.fillStyle = mut; x.textAlign = 'center'; x.fillText('حسابداری فیکس کوییک' + (licOk ? '' : '  ·  ' + Core.toFa('09999917199') + '  ·  fixq.ir') + (pages.length > 1 ? '  ·  صفحه ' + Core.toFa(n + 1) + ' از ' + Core.toFa(pages.length) : ''), W / 2, H - 56);
   };
   newPage(true);
   const limit = () => H - 96 - 20; // content bottom
@@ -62,8 +62,8 @@ async function drawInvoicePages(inv) {
     y += h;
   });
   // totals
-  const rows = [['جمع اقلام', fmt(info.sub) + ' ریال']]; if (info.discount) rows.push(['تخفیف', fmt(info.discount) + ' ریال']); if (info.vat) rows.push(['ارزش افزوده ' + Core.toFa(info.vatRate) + '٪', fmt(info.vat) + ' ریال']);
-  rows.push(['مبلغ نهایی', fmt(info.total) + ' ریال', true]); rows.push([isSaleSide ? 'دریافت‌شده' : 'پرداخت‌شده', fmt(info.paid) + ' ریال']); rows.push(['مانده', fmt(info.remaining) + ' ریال', true]);
+  const rows = [['جمع اقلام', fmt(info.sub) + ' ' + UNIT()]]; if (info.discount) rows.push(['تخفیف', fmt(info.discount) + ' ' + UNIT()]); if (info.vat) rows.push(['ارزش افزوده ' + Core.toFa(info.vatRate) + '٪', fmt(info.vat) + ' ' + UNIT()]);
+  rows.push(['مبلغ نهایی', fmt(info.total) + ' ' + UNIT(), true]); rows.push([isSaleSide ? 'دریافت‌شده' : 'پرداخت‌شده', fmt(info.paid) + ' ' + UNIT()]); rows.push(['مانده', fmt(info.remaining) + ' ' + UNIT(), true]);
   const need = rows.length * 48 + 40 + 150; if (y + need > limit()) newPage(false);
   y += 24; const bx = L, bw = 520;
   rows.forEach(r => { if (r[2]) { ctx.fillStyle = '#eff6ff'; ctx.fillRect(bx, y, bw, 46); } font(r[2] ? 28 : 25, r[2] ? 800 : 400); txt(r[0], bx + bw - 14, y + 33, 'right'); txt(r[1], bx + 14, y + 33, 'left', r[2] ? brand : ink); ctx.strokeStyle = line; ctx.lineWidth = 1.5; ctx.strokeRect(bx, y, bw, 46); y += 46; });
@@ -113,7 +113,7 @@ async function drawLabelPages(items, opt) {
     x.font = '700 26px ' + FONT; const lines = wrapText(x, it.p.name, tw).slice(0, 3); let ty = ly + pad + 30; lines.forEach(t => { x.fillText(t, tx, ty); ty += 32; });
     x.font = '400 22px ' + FONT; x.fillStyle = '#4b5563';
     if (it.p.sku) { x.fillText(Core.toFa(it.p.sku), tx, ty + 4); ty += 30; }
-    if (opt.price && it.p.salePrice) { x.font = '700 24px ' + FONT; x.fillStyle = '#111827'; x.fillText(fmt(it.p.salePrice) + ' ریال', tx, ly + lh - pad - 6); }
+    if (opt.price && it.p.salePrice) { x.font = '700 24px ' + FONT; x.fillStyle = '#111827'; x.fillText(fmt(it.p.salePrice) + ' ' + UNIT(), tx, ly + lh - pad - 6); }
     i++;
   }
   return pages;

@@ -131,3 +131,33 @@ select.inp{appearance:auto}
 .pl small{color:var(--mut);font-size:calc(11.5px * var(--fs,1))}.pl b{font-size:calc(17px * var(--fs,1));overflow-wrap:anywhere}.pl em{font-style:normal;color:var(--mut);font-size:calc(11px * var(--fs,1))}
 .vatchk{margin:4px 2px 8px}
 #scan .sc-man{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 100px);display:flex;gap:8px}#scan .sc-man input{flex:1;height:48px;border-radius:12px;border:0;padding:0 12px;font-size:16px;direction:ltr}#scan .sc-man button{height:48px;border-radius:12px;border:0;background:#2563eb;color:#fff;padding:0 16px;font-weight:700}
+/* ── v1.9 look: line icons, header date, softer cards ── */
+.ic{width:1.15em;height:1.15em;vertical-align:-.2em;flex:none;margin-inline-end:6px}
+.ic.big{width:44px;height:44px;margin:0 auto 6px;display:block;color:var(--blue)}
+.top{background:linear-gradient(135deg,var(--top),color-mix(in srgb,var(--top) 78%,var(--blue)));box-shadow:0 2px 10px #0003;position:relative;z-index:5}
+.hdate{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2;background:#ffffff1a;border:1px solid #ffffff26;border-radius:11px;padding:3px 9px;min-width:74px;text-align:center}
+.hdate b{font-size:calc(11px * var(--fs,1));font-weight:800;color:#fde68a}.hdate span{font-size:calc(11px * var(--fs,1));white-space:nowrap;opacity:.95}
+@media (max-width:360px){.top .logo{display:none}}
+.nav{box-shadow:0 -2px 12px #0000000f}
+.nav i{filter:none;display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:99px;transition:background .15s}
+.nav i .ic{margin:0;width:22px;height:22px}
+.nav .on i{background:color-mix(in srgb,var(--blue) 15%,transparent)}
+.fab .ic{margin:0;width:28px;height:28px;stroke-width:2.4}.fab{display:flex;align-items:center;justify-content:center;padding:0}
+.card,.stat{box-shadow:0 1px 2px #0000000a,0 2px 8px #00000008}
+.ch{justify-content:flex-start;gap:0}.ch>.lnk,.ch>button{margin-inline-start:auto}.ch>.ic{color:var(--blue);width:1.25em;height:1.25em}
+.q .ic{margin:0;width:26px;height:26px}.q{gap:4px;padding:11px 2px}
+.q:not(.green):not(.blue) .ic{color:var(--blue)}
+.btn .ic{width:1.1em;height:1.1em}.btn{display:flex;align-items:center;justify-content:center}.btn.sm{display:inline-flex}
+.row b .ic{color:var(--blue)}
+.empty .eic svg{width:52px;height:52px;margin:0 auto;display:block;color:var(--mut);opacity:.7}
+.ab-row i{display:flex;color:var(--blue)}.ab-row i .ic{margin:0;width:24px;height:24px}
+.alert .ic{margin-inline-end:4px}
+.stat{position:relative;overflow:hidden}.stat::before{content:"";position:absolute;inset-inline-start:0;top:10px;bottom:10px;width:3px;border-radius:3px;background:var(--line)}
+.stat:has(.debit)::before{background:var(--deb)}.stat:has(.credit)::before{background:var(--cre)}
+.seg button{display:flex;align-items:center;justify-content:center}
+.exitbox{text-align:center;padding:4px 0 6px}.exitbox .msg{margin:4px 0}
+.rsl{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}.chk.rs{align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 6px}
+.chk.rs input{margin-top:3px;flex:none}.chk.rs b{display:block;font-size:calc(14px * var(--fs,1))}.chk.rs em{font-style:normal;color:var(--mut);font-weight:400}.chk.rs small{display:block;color:var(--mut);font-size:calc(12px * var(--fs,1))}
+.chk.rs:has(input:disabled){opacity:.5}
+.top{gap:8px;padding-inline:12px}.top .logo{height:30px;padding:2px 5px}.top h1{font-size:calc(16px * var(--fs,1))}
+@media (max-width:400px){.top .logo{height:26px}.hdate{min-width:66px;padding:2px 7px}}

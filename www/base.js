@@ -4,6 +4,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = Core.fmt, fmtDate = Core.fmtDate, fa = Core.toFa;
+const UNIT = () => Core.unitName();
 const isNative = () => { const C = window.Capacitor; if (!C) return false; if (C.isNativePlatform) return !!C.isNativePlatform(); if (C.getPlatform) return C.getPlatform() !== 'web'; return !!(C.Plugins && C.Plugins.Filesystem); };
 
 /* ── storage (IndexedDB, one JSON document) ── */
@@ -22,8 +23,8 @@ function save() {
 }
 async function loadState() {
   let raw = null; try { raw = await kvGet('state'); } catch (e) { /* ignore */ }
-  if (raw) { try { const o = JSON.parse(raw); const base = Core.emptyState(); S = Object.assign(base, o); S.settings = Object.assign(base.settings, o.settings || {}); applyAppearance(S.settings); return; } catch (e) { /* fall through to prev */ } }
-  try { const prev = await kvGet('state_prev'); if (prev) { S = Object.assign(Core.emptyState(), JSON.parse(prev)); toast('اطلاعات از نسخه پشتیبان خودکار بازیابی شد.'); } } catch (e) { /* new */ }
+  if (raw) { try { const o = JSON.parse(raw); const base = Core.emptyState(); S = Object.assign(base, o); S.settings = Object.assign(base.settings, o.settings || {}); applySettings(S.settings); return; } catch (e) { /* fall through to prev */ } }
+  try { const prev = await kvGet('state_prev'); if (prev) { S = Object.assign(Core.emptyState(), JSON.parse(prev)); applySettings(S.settings); toast('اطلاعات از نسخه پشتیبان خودکار بازیابی شد.'); } } catch (e) { /* new */ }
 }
 
 // focus a field shortly after a sheet opens, unless the user already focused something inside it
@@ -188,6 +189,8 @@ async function done(r, okMsg) { if (!r.ok) { toast(r.error, true); return false;
 /* ── appearance (theme / accent / font size) ── */
 const ACCENTS = { blue: ['#2563eb', '#1d4ed8', 'آبی'], green: ['#16a34a', '#15803d', 'سبز'], purple: ['#7c3aed', '#6d28d9', 'بنفش'], orange: ['#ea580c', '#c2410c', 'نارنجی'], red: ['#dc2626', '#b91c1c', 'قرمز'], teal: ['#0d9488', '#0f766e', 'فیروزه‌ای'] };
 const FS_MIN = 0.8, FS_MAX = 1.5;
+// everything the user personalised lives in S.settings (and so in every backup); apply it all after load/restore
+function applySettings(s) { s = s || {}; Core.setUnit(s.unit); applyAppearance(s); }
 function applyAppearance(s) {
   s = s || {}; const r = document.documentElement, th = s.theme === 'light' || s.theme === 'dark' ? s.theme : 'auto';
   if (th === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', th);
@@ -200,3 +203,8 @@ function applyAppearance(s) {
 try { applyAppearance(JSON.parse(localStorage.getItem('fq_look') || '{}')); } catch (e) { /* ignore */ }
 function sign(b) { return b > 0 ? 'طلب من' : b < 0 ? 'بدهی من' : 'تسویه'; }
 function bal(b) { return '<span class="' + (b > 0 ? 'debit' : b < 0 ? 'credit' : 'zero') + '">' + fmt(Math.abs(b)) + '</span>'; }
+
+/* ── header date (every page) + static icons ── */
+function tickDate() { const el = document.getElementById('hdate'); if (!el) return; const d = Core.longDate(Core.todayISO()); el.innerHTML = '<b>' + d.wd + '</b><span>' + d.date + '</span>'; }
+tickDate(); setInterval(tickDate, 60e3); document.addEventListener('visibilitychange', () => { if (!document.hidden) tickDate(); });
+$$('[data-ic]').forEach(e => { e.innerHTML = ico(e.dataset.ic); });

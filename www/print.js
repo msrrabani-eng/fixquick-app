@@ -27,8 +27,7 @@ async function drawInvoicePages(inv) {
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); pages.push(cv); y = M;
     // header
     if (logo) { const lh = 92, lw = lh * logo.width / logo.height; ctx.drawImage(logo, L, y, lw, lh); }
-    font(46, 800); txt('فاکتور ' + Core.TYPE_FA[inv.type], R, y + 44, 'right', brand);
-    if (me) { font(28, 700); let t = me; while (t.length > 1 && ctx.measureText(t).width > R - L - 420) t = t.slice(0, -1); txt(t === me ? me : t.trim() + '…', R, y + 88, 'right', ink); } // letterhead: the user's own name
+    font(46, 800); txt('فاکتور ' + Core.TYPE_FA[inv.type], R, y + 62, 'right', brand);
     y += 112; ctx.strokeStyle = brand; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke(); y += 28;
     if (first) {
       // parties: who sold, who bought (a return keeps the roles of the original deal)

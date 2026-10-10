@@ -652,10 +652,24 @@ const routes = {
 };
 const navMap = { search: 'home', home: 'home', people: 'people', person: 'people', invoices: 'invoices', inv: 'invoices', edit: 'invoices', new: 'invoices', products: 'products', stock: 'products', kardex: 'products', more: 'more', cheques: 'more', expenses: 'more', reports: 'more', settings: 'more' };
 let lastRoute = '';
-function render() {
+// update the page around a text box the user is typing in, without ever touching that box
+// (re-creating it drops letters on Android keyboards that are still composing a word)
+function softSwap(main, html, id) {
+  const live = document.getElementById(id); if (!live || !main.contains(live)) return false;
+  const tmp = document.createElement('div'); tmp.innerHTML = html; const nk = tmp.querySelector('#' + id); if (!nk) return false;
+  let anchor = live; while (anchor.parentNode !== main) anchor = anchor.parentNode;
+  let na = nk; while (na.parentNode !== tmp) na = na.parentNode;
+  if (anchor.tagName !== na.tagName) return false;
+  Array.from(main.childNodes).forEach(n => { if (n !== anchor) main.removeChild(n); });
+  const kids = Array.from(tmp.childNodes), at = kids.indexOf(na);
+  kids.slice(0, at).forEach(n => main.insertBefore(n, anchor));
+  const after = kids.slice(at + 1), ref = anchor.nextSibling; after.forEach(n => main.insertBefore(n, ref));
+  return true;
+}
+function render(opt) {
   const hash = (location.hash || '#/home').split('?')[0]; const [, page, arg] = hash.split('/'); const fn = routes[page] || routes.home;
   let res; try { res = routeAllowed(page) ? fn(arg) : { title: 'دسترسی محدود', html: empty(ico('lock'), 'برای دیدن این بخش اجازه ندارید. از مدیر برنامه بخواهید.', backTo('#/home')), back: '#/home' }; } catch (e) { console.error(e); diagLog('render', e.message, e.stack, hash); res = { title: 'خطا', html: '<div class="card"><b class="debit">خطای برنامه</b><p class="hint">' + esc(e.message) + '</p><p class="hint">لطفاً گزارش خطا را بفرستید تا برطرف شود. اطلاعات شما سالم است.</p><button class="btn green" data-act="reportWa">ارسال گزارش در واتساپ</button><button class="btn blue" data-act="go" data-h="#/home">بازگشت به خانه</button></div>' }; }
-  const main = $('#main'), keep = main.scrollTop, same = lastRoute === hash; main.innerHTML = res.html; main.scrollTop = same ? keep : 0; lastRoute = hash; lastFull = location.hash || '#/home';
+  const main = $('#main'), keep = main.scrollTop, same = lastRoute === hash; if (!(opt && opt.keepId && softSwap(main, res.html, opt.keepId))) main.innerHTML = res.html; main.scrollTop = same ? keep : 0; lastRoute = hash; lastFull = location.hash || '#/home';
   $('#title').textContent = res.title; const bk = $('#back'); bk.hidden = !res.back; bk.dataset.h = res.back || '';
   $$('.nav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === (navMap[page] || 'home')));
   const fab = $('#fab'); fab.hidden = !res.fab; if (res.fab) { fab.dataset.act = res.fab[0]; if (res.fab[1] === '+') fab.innerHTML = ico('plus'); else fab.textContent = res.fab[1]; fab.dataset.t = (res.fabData && res.fabData.t) || ''; }
@@ -687,7 +701,7 @@ document.addEventListener('click', e => {
 });
 let searchT;
 document.addEventListener('input', e => {
-  const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ', 'gs-q': 'searchQ' }[i.id]; if (!m) return; UI[m] = i.value; UI.searchLim = 30; UI.limPeople = 150; UI.limInv = 100; UI.limProd = 100; clearTimeout(searchT); searchT = setTimeout(() => { const cur = document.activeElement === i; const pos = i.selectionStart; render(); const n = $('#' + i.id); if (n && cur) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } } }, 180);
+  const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ', 'gs-q': 'searchQ' }[i.id]; if (!m) return; UI[m] = i.value; UI.searchLim = 30; UI.limPeople = 150; UI.limInv = 100; UI.limProd = 100; clearTimeout(searchT); searchT = setTimeout(() => { if (!i.isConnected) return; render({ keepId: i.id }); }, i.id === 'gs-q' ? 250 : 180);
 });
 let lastFull = '';
 window.addEventListener('hashchange', () => { if ((location.hash || '#/home') !== lastFull) render(); }); // ignore duplicate events for the same address (would wipe an open form)

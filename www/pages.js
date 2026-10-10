@@ -120,7 +120,7 @@ function txForm(type, personId, tx, pre) {
   const f = sh.q('#tf'); if (tx && f.kind) f.kind.value = tx.kind;
   const setP = id => { personId = id; sh.q('#tf-p').textContent = personName(id); };
   if (tx) sh.q('#tf-p').disabled = true; else sh.q('#tf-p').onclick = () => pickList('انتخاب شخص', personItems(), v => setP(+v));
-  const full = sh.q('#tf-full'); if (full) full.onclick = () => { const b = Core.balanceOf(S, personId); if (!b) return toast('مانده صفر است.'); f.amount.value = fmt((Math.abs(b))); };
+  const full = sh.q('#tf-full'); if (full) full.onclick = () => { const b = Core.balanceOf(S, personId); if (!b) return toast('مانده صفر است.'); f.amount.value = Core.fmtInput((Math.abs(b))); };
   f.onsubmit = async e => {
     e.preventDefault(); const amount = Core.parseMoney(f.amount.value), date = readDate(f, 'date');
     if (!date) return toast('تاریخ نامعتبر است.', true); if (!amount) return toast('مبلغ را درست وارد کنید.', true);
@@ -175,8 +175,8 @@ function pageInvoice(id) {
 function sellerName() { return String(S.settings.sellerName || S.settings.business || '').trim(); }
 function invoiceText(i) {
   const info = Core.invoiceInfo(S, i);
-  const saleSide = i.type === 'sale' || i.type === 'purchase_return', me = sellerName();
-  return ['فاکتور ' + Core.TYPE_FA[i.type] + ' شماره ' + fa(i.no)].concat(me ? [(saleSide ? 'فروشنده: ' : 'خریدار: ') + me] : [], [(saleSide ? 'خریدار: ' : 'فروشنده: ') + personName(i.personId), 'تاریخ: ' + fmtDate(i.date), '']).concat(info.lines.map(l => '• ' + prodName(l.productId) + ' × ' + Core.fmtQty(l.qty) + ' × ' + fmt(l.price) + ' = ' + fmt(l.gross) + (l.note ? ' (' + l.note + ')' : '')), ['', 'جمع: ' + fmt(info.sub)], info.discount ? ['تخفیف: ' + fmt(info.discount)] : [], info.vat ? ['ارزش افزوده (' + fa(info.vatRate) + '٪): ' + fmt(info.vat)] : [], ['مبلغ نهایی: ' + fmt(info.total) + ' ' + UNIT(), 'پرداخت‌شده: ' + fmt(info.paid), 'مانده: ' + fmt(info.remaining)], ['', '— حسابداری فیکس کوییک' + (licOk ? '' : ' · fixq.ir')]).join('\n');
+  const weSell = i.type === 'sale' || i.type === 'sale_return', me = sellerName(), them = personName(i.personId);
+  return ['فاکتور ' + Core.TYPE_FA[i.type] + ' شماره ' + fa(i.no), 'فروشنده: ' + ((weSell ? me : them) || '—'), 'خریدار: ' + ((weSell ? them : me) || '—'), 'تاریخ: ' + fmtDate(i.date), ''].concat(info.lines.map(l => '• ' + prodName(l.productId) + ' × ' + Core.fmtQty(l.qty) + ' × ' + fmt(l.price) + ' = ' + fmt(l.gross) + (l.note ? ' (' + l.note + ')' : '')), ['', 'جمع: ' + fmt(info.sub)], info.discount ? ['تخفیف: ' + fmt(info.discount)] : [], info.vat ? ['ارزش افزوده (' + fa(info.vatRate) + '٪): ' + fmt(info.vat)] : [], ['مبلغ نهایی: ' + fmt(info.total) + ' ' + UNIT(), 'پرداخت‌شده: ' + fmt(info.paid), 'مانده: ' + fmt(info.remaining)], ['', '— حسابداری فیکس کوییک' + (licOk ? '' : ' · fixq.ir')]).join('\n');
 }
 
 /* new invoice page */
@@ -197,7 +197,7 @@ function pageNewInvoice(type, preset) {
     '<div class="sumbox"><div class="kv"><span>مبلغ نهایی</span><b class="big" id="s-tot">۰ ' + UNIT() + '</b></div></div>' + moneyField('paid', first ? first.amount : 0, payLabel) + '<div class="row2"><button type="button" class="lnk" data-act="payFull">تسویه کامل</button></div>' + methodSel(first ? first.method : 'cash') +
     '<div class="kv small"><span>' + ({ sale: 'او هنوز باید به من بدهد', purchase: 'من هنوز باید به او بدهم', sale_return: 'مانده‌ای که باید به او برگردانم', purchase_return: 'مانده‌ای که او باید به من برگرداند' }[type]) + '</span><b id="s-rem">۰</b></div><label class="fld"><span>توضیحات</span><input class="inp" name="note" value="' + esc(ed ? ed.note : '') + '"></label><button class="btn ' + (isSaleSide ? 'green' : 'blue') + '" type="submit" id="nf-save">' + (ed ? 'ذخیره تغییرات فاکتور' : 'ثبت فاکتور ' + Core.TYPE_FA[type]) + '</button></form>';
   return { title: ed ? 'ویرایش فاکتور ' + fa(ed.no) : 'فاکتور ' + Core.TYPE_FA[type], html: h, back: ed ? '#/inv/' + ed.id : '#/invoices', mount: () => {
-    if (ed) ed.items.forEach(l => { addRow(); const rows = $$('.it-row'), r = rows[rows.length - 1], pr = Core.byId(S.products, l.productId); r.dataset.pid = l.productId; $('.pick', r).textContent = pr ? pr.name : '—'; $('[name=qty]', r).value = fa(l.qty); $('[name=price]', r).value = fmt((l.price)); $('[name=sn]', r).value = l.note || ''; });
+    if (ed) ed.items.forEach(l => { addRow(); const rows = $$('.it-row'), r = rows[rows.length - 1], pr = Core.byId(S.products, l.productId); r.dataset.pid = l.productId; $('.pick', r).textContent = pr ? pr.name : '—'; $('[name=qty]', r).value = fa(l.qty); $('[name=price]', r).value = Core.fmtInput((l.price)); $('[name=sn]', r).value = l.note || ''; });
     else addRow();
     calcInvoice(); const f = $('#nf'); f.addEventListener('input', calcInvoice); f.addEventListener('change', calcInvoice); f.onsubmit = submitInvoice; } };
 }
@@ -457,7 +457,7 @@ const actions = {
   pickInvPerson: () => pickList('انتخاب شخص', personItems(), v => { $('#nf [name=pid]').value = v; $('#nf-p').textContent = personName(+v); }, { addNew: 'شخص جدید', onAdd: () => personFormInline() }),
   pickProd: (d, el) => {
     const type = $('#nf [name=type]').value, row = el.closest('.it-row');
-    const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fmt((dp)); } const stk = Core.replay(S).stock[p.id], have = stk ? stk.stock : 0; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(have) + ' ' + p.unit; $('.stk', row).classList.toggle('debit', have <= 0); if (have <= 0 && (type === 'sale' || type === 'purchase_return')) toast('«' + p.name + '» موجودی ندارد؛ فاکتور بدون موجودی ثبت نمی‌شود.', true); calcInvoice(); };
+    const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = Core.fmtInput((dp)); } const stk = Core.replay(S).stock[p.id], have = stk ? stk.stock : 0; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(have) + ' ' + p.unit; $('.stk', row).classList.toggle('debit', have <= 0); if (have <= 0 && (type === 'sale' || type === 'purchase_return')) toast('«' + p.name + '» موجودی ندارد؛ فاکتور بدون موجودی ثبت نمی‌شود.', true); calcInvoice(); };
     pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', onAdd: () => productForm(null, { inInvoice: true, onSaved: fill }) });
   },
   plGo: d => { UI.rep = d.k; goHash('#/reports'); },
@@ -474,8 +474,8 @@ const actions = {
   reportClear: async () => { if (await confirmBox('خطاهای ثبت‌شده پاک شود؟', 'پاک کن')) { diagClear(); try { localStorage.setItem('fq_err_seen', '0'); } catch (e) { /* ignore */ } render(); } },
   printInv: d => printInvoice(+d.id),
   addRow: () => { addRow(); calcInvoice(); }, rmRow: (d, el) => { if ($$('.it-row').length > 1) { el.closest('.it-row').remove(); calcInvoice(); } },
-  payFull: () => { const f = $('#nf'); f.paid.value = fmt((+f.dataset.total || 0)); calcInvoice(); },
-  payInv: d => { const i = Core.byId(S.invoices, +d.id), info = Core.invoiceInfo(S, i); const isRec = i.type === 'sale' || i.type === 'purchase_return'; txForm(isRec ? 'receipt' : 'payment', i.personId, null, { ref: i.id }); setTimeout(() => { const f = $('#tf'); f.amount.value = fmt((info.remaining)); f.desc.value = 'تسویه فاکتور ' + fa(i.no); }, 30); },
+  payFull: () => { const f = $('#nf'); f.paid.value = Core.fmtInput((+f.dataset.total || 0)); calcInvoice(); },
+  payInv: d => { const i = Core.byId(S.invoices, +d.id), info = Core.invoiceInfo(S, i); const isRec = i.type === 'sale' || i.type === 'purchase_return'; txForm(isRec ? 'receipt' : 'payment', i.personId, null, { ref: i.id }); setTimeout(() => { const f = $('#tf'); f.amount.value = Core.fmtInput((info.remaining)); f.desc.value = 'تسویه فاکتور ' + fa(i.no); }, 30); },
   shareInv: d => shareText(invoiceText(Core.byId(S.invoices, +d.id))),
   delInv: async d => { const i = Core.byId(S.invoices, +d.id); if (await confirmBox('فاکتور ' + fa(i.no) + ' و همه پرداخت‌های ثبت‌شده‌اش حذف شود؟ اثر آن روی حساب و انبار برگردانده می‌شود.', 'حذف فاکتور', true)) { const r = Core.deleteInvoice(S, i.id); if (r.ok) { await save(); toast('حذف شد.'); goHash('#/invoices'); } else toast(r.error, true); } },
   addProduct: () => productForm(), prodOpen: d => prodOpen(+d.id),
@@ -679,7 +679,7 @@ function putProductInRow(p) {
   if (same) { const q = $('[name=qty]', same); q.value = fa(Core.toEn(q.value) * 1 + 1 || 1); calcInvoice(); return; }
   let row = rows.find(r => !r.dataset.pid); if (!row) { addRow(); const all = $$('.it-row'); row = all[all.length - 1]; }
   row.dataset.pid = p.id; $('.pick', row).textContent = p.name; const pr = $('[name=price]', row);
-  if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = fmt((dp)); }
+  if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = Core.fmtInput((dp)); }
   const stk = Core.replay(S).stock[p.id], have = stk ? stk.stock : 0; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(have) + ' ' + p.unit; $('.stk', row).classList.toggle('debit', have <= 0); if (have <= 0 && (type === 'sale' || type === 'purchase_return')) toast('«' + p.name + '» موجودی ندارد.', true); calcInvoice();
 }
 

@@ -14,6 +14,7 @@ async function drawInvoicePages(inv) {
   const info = Core.invoiceInfo(S, inv), logo = await loadImg('logo.png');
   const { W, H, M, FONT } = PRINT, R = W - M, L = M, ink = '#111827', mut = '#64748b', line = '#cbd5e1', brand = '#1d4ed8';
   const isSaleSide = inv.type === 'sale' || inv.type === 'purchase_return';
+  const weSell = inv.type === 'sale' || inv.type === 'sale_return', me = sellerName();
   const person = Core.byId(S.people, inv.personId) || { name: '—' };
   const pages = []; let cv, ctx, y;
   const font = (px, w) => ctx.font = (w || 400) + ' ' + px + 'px ' + FONT;
@@ -27,12 +28,19 @@ async function drawInvoicePages(inv) {
     // header
     if (logo) { const lh = 92, lw = lh * logo.width / logo.height; ctx.drawImage(logo, L, y, lw, lh); }
     font(46, 800); txt('فاکتور ' + Core.TYPE_FA[inv.type], R, y + 44, 'right', brand);
-    const me = sellerName(); if (me) { font(27, 700); txt((isSaleSide ? 'فروشنده: ' : 'خریدار: ') + me, R, y + 88, 'right', ink); }
+    if (me) { font(28, 700); let t = me; while (t.length > 1 && ctx.measureText(t).width > R - L - 420) t = t.slice(0, -1); txt(t === me ? me : t.trim() + '…', R, y + 88, 'right', ink); } // letterhead: the user's own name
     y += 112; ctx.strokeStyle = brand; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke(); y += 28;
     if (first) {
-      font(28, 700); txt((isSaleSide ? 'مشتری: ' : 'تأمین‌کننده: ') + person.name + (person.phone ? '   ' + Core.toFa(person.phone) : ''), R, y + 28);
-      font(26, 400); txt('شماره: ' + Core.toFa(inv.no), L + 380, y + 28, 'right', ink); txt('تاریخ: ' + Core.fmtDate(inv.date), L, y + 28, 'left', ink);
-      ctx.textAlign = 'right'; y += 56;
+      // parties: who sold, who bought (a return keeps the roles of the original deal)
+      const ph = person.phone ? '   ' + Core.toFa(person.phone) : '';
+      font(27, 400); txt('فروشنده: ', R, y + 28, 'right', mut); txt('خریدار: ', R, y + 72, 'right', mut);
+      const lw = Math.max(ctx.measureText('فروشنده: ').width, ctx.measureText('خریدار: ').width) + 6;
+      font(28, 700); const room = R - lw - (L + 330); // keep clear of number/date on the left
+      const fit = (t, extra) => { t = String(t || '—'); const w = room - (extra ? ctx.measureText(extra).width : 0); if (ctx.measureText(t).width <= w) return t + (extra || ''); while (t.length > 1 && ctx.measureText(t + '…').width > w) t = t.slice(0, -1); return t.trim() + '…' + (extra || ''); };
+      const them = fit(person.name, ph), mine = fit(me);
+      txt(weSell ? mine : them, R - lw, y + 28); txt(weSell ? them : mine, R - lw, y + 72);
+      font(26, 400); txt('شماره: ' + Core.toFa(inv.no), L, y + 28, 'left', ink); txt('تاریخ: ' + Core.fmtDate(inv.date), L, y + 72, 'left', ink);
+      ctx.textAlign = 'right'; y += 100;
       if (inv.note) { font(24, 400); const nl = wrapText(ctx, 'توضیحات: ' + inv.note, R - L); nl.forEach(t => { txt(t, R, y + 24, 'right', mut); y += 34; }); }
       y += 10;
     }

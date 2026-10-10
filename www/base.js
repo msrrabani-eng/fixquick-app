@@ -128,7 +128,7 @@ function dateField(name, iso, label) {
   return '<label class="fld"><span>' + esc(label || 'تاریخ') + '</span><div class="date"><input class="inp" name="' + name + '" data-date inputmode="numeric" autocomplete="off" value="' + esc(fa(Core.isoToJalali(iso))) + '" placeholder="۱۴۰۵/۰۱/۰۱"><button type="button" class="cal-btn" data-pickdate aria-label="تقویم">📅</button></div></label>';
 }
 function moneyField(name, val, label, ph) {
-  return '<label class="fld"><span>' + esc(label) + '</span><input class="inp ltr" name="' + name + '" data-money inputmode="numeric" autocomplete="off" placeholder="' + esc(ph || '۰') + '" value="' + (val ? fmt(val) : '') + '"></label>';
+  return '<label class="fld"><span>' + esc(label) + '</span><input class="inp ltr" name="' + name + '" data-money inputmode="numeric" autocomplete="off" placeholder="' + esc(ph || '۰') + '" value="' + (val ? Core.fmtInput(val) : '') + '"></label>';
 }
 function readDate(root, name) { const i = $('[name="' + name + '"]', root); return Core.jalaliToIso(i.value); }
 function readMoney(root, name) { const i = $('[name="' + name + '"]', root); return i.value.trim() === '' ? 0 : Core.parseMoney(i.value); }

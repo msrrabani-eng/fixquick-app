@@ -161,3 +161,7 @@ select.inp{appearance:auto}
 .chk.rs:has(input:disabled){opacity:.5}
 .top{gap:8px;padding-inline:12px}.top .logo{height:30px;padding:2px 5px}.top h1{font-size:calc(16px * var(--fs,1))}
 @media (max-width:400px){.top .logo{height:26px}.hdate{min-width:66px;padding:2px 7px}}
+/* big numbers never break in the middle; they shrink on narrow phones / large text instead */
+.stat b,.pl b,.hero b{white-space:nowrap;overflow-wrap:normal;overflow:hidden;text-overflow:ellipsis}
+.stat b{font-size:min(calc(19px * var(--fs,1)),5.2vw)}.pl b{font-size:min(calc(17px * var(--fs,1)),4.8vw)}.hero b{font-size:min(calc(30px * var(--fs,1)),8.5vw)}
+.stat small{min-height:2.6em}

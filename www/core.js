@@ -47,6 +47,8 @@
   Core.unitName = u => ((u || Core.unit) === 'toman' ? 'تومان' : 'ریال');
   Core.shown = n => (Core.unit === 'toman' ? (Number(n) || 0) / 10 : n);
   Core.fmt = n => Core.toFa(Core.group(Core.shown(n)));
+  // for pre-filling input boxes: exact (Toman keeps one decimal when the Rial amount doesn't end in 0, so editing never changes the amount)
+  Core.fmtInput = function (n) { n = Math.round(Number(n) || 0); if (Core.unit !== 'toman') return Core.toFa(Core.group(n)); const d = Math.abs(n % 10); return Core.toFa(Core.group(Math.trunc(n / 10)) + (d ? '.' + d : '')); };
   Core.fmtQty = function (q) {
     q = Math.round((Number(q) || 0) * 1000) / 1000;
     const parts = String(q).split('.'); parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -612,6 +614,9 @@
     const d = o.data, base = Core.emptyState();
     for (const k of ['people', 'products', 'invoices', 'tx', 'expenses', 'cheques', 'adjusts']) { if (d[k] === undefined) d[k] = []; if (!Array.isArray(d[k])) return err('ساختار فایل پشتیبان خراب است.'); }
     d.settings = Object.assign(base.settings, d.settings || {}); d.v = 1;
+    const fixM = m => (METHODS[m] ? m : m === 'card' ? 'bank' : 'cash'); // unknown payment methods from other files
+    for (const t of d.tx) if (t.method != null && !METHODS[t.method]) t.method = fixM(t.method);
+    for (const e of d.expenses) if (!METHODS[e.method]) e.method = fixM(e.method);
     if (!Number.isInteger(d.seq)) d.seq = 1;
     let maxId = 0; for (const k of ['people', 'products', 'invoices', 'tx', 'expenses', 'cheques', 'adjusts']) for (const x of d[k]) { const v = +x.id || 0; if (v > maxId) maxId = v; }
     if (d.seq <= maxId) d.seq = maxId + 1;

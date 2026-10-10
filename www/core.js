@@ -131,6 +131,8 @@
     if (kind === 'fytd') { const fm = Math.min(12, Math.max(1, +fyMonth || 1)), y = p.jm >= fm ? p.jy : p.jy - 1; return { from: Core.partsToIso(y, fm, 1), to: t }; }
     if (kind === 'week') { const w = Core.weekdayIdx(t); const from = Core.addDays(t, -w); return { from, to: Core.addDays(from, 6) }; }
     if (kind === 'month') return { from: Core.partsToIso(p.jy, p.jm, 1), to: Core.partsToIso(p.jy, p.jm, Core.monthLenJ(p.jy, p.jm)) };
+    if (kind === 'prevmonth') { const jm = p.jm === 1 ? 12 : p.jm - 1, jy = p.jm === 1 ? p.jy - 1 : p.jy; return { from: Core.partsToIso(jy, jm, 1), to: Core.partsToIso(jy, jm, Core.monthLenJ(jy, jm)) }; }
+    if (kind === 'prevweek') { const w = Core.weekdayIdx(t); const from = Core.addDays(t, -w - 7); return { from, to: Core.addDays(from, 6) }; }
     if (kind === 'year') return { from: Core.partsToIso(p.jy, 1, 1), to: Core.partsToIso(p.jy, 12, Core.monthLenJ(p.jy, 12)) };
     return { from: null, to: null };
   };
@@ -182,6 +184,7 @@
     return ok({ person: p });
   };
   Core.editPerson = function (st, id, d) {
+    Core._pv++;
     const p = byId(st.people, id); if (!p) return err('شخص پیدا نشد.');
     const name = String(d.name || '').trim(); if (!name) return err('نام را وارد کنید.');
     if (st.people.some(x => x.id !== id && !x.archived && x.name === name)) return err('شخصی با این نام قبلاً ثبت شده است.');
@@ -277,6 +280,7 @@
     st.products.push(p); return ok({ product: p });
   };
   Core.editProduct = function (st, id, d) {
+    Core._pv++;
     const p = byId(st.products, id); if (!p) return err('کالا پیدا نشد.');
     const name = String(d.name || '').trim(); if (!name) return err('نام کالا را وارد کنید.');
     if (st.products.some(x => x.id !== id && x.name === name)) return err('کالایی با این نام وجود دارد.');
@@ -472,6 +476,194 @@
       if (!best) return 0; score += best;
     }
     return score + (words[0].some(w => t.startsWith(w)) ? 1 : 0);
+  };
+
+  /* ───────────── smart search engine ─────────────
+   * Understands short Persian questions ("چند تا کابل دارم", "قیمت آیفون ۱۳", "علی چقدر بدهکاره", "فروش آیفون این ماه"),
+   * Finglish, typos, synonyms (لایتنینگ = Li, تایپ سی = C), number+unit ("1 متر" ≠ "1.2 متر") and ranks by how rare the
+   * matched words are (a model code like CA-2261 weighs more than "کابل"). */
+  const UNITS = { 'متر': 'متر', 'متری': 'متر', 'm': 'متر', 'سانت': 'سانت', 'سانتی متر': 'سانت', 'cm': 'سانت', 'وات': 'وات', 'w': 'وات', 'گیگ': 'گیگ', 'گیگابایت': 'گیگ', 'gb': 'گیگ', 'g': 'گیگ', 'ترابایت': 'ترا', 'ترا': 'ترا', 'tb': 'ترا', 'امپر': 'امپر', 'a': 'امپر', 'میلی امپر': 'mah', 'mah': 'mah', 'اینچ': 'اینچ', 'inch': 'اینچ', 'پورت': 'پورت', 'کاره': 'کاره' };
+  const UNIT_RX = new RegExp('(^|\\s)(\\d+(?:\\.\\d+)?)\\s?(' + Object.keys(UNITS).sort((a, b) => b.length - a.length).join('|') + ')(?=\\s|$)', 'g');
+  const PHRASES = [['تایپ سی', 'c'], ['تایپسی', 'c'], ['سی به', 'c به'], ['به سی', 'به c'], ['type c', 'c'], ['typec', 'c'], ['یو اس بی', 'usb'], ['یواس بی', 'usb'], ['پاور بانک', 'پاوربانک'], ['power bank', 'پاوربانک'], ['هندز فری', 'هندزفری'], ['ایر پاد', 'ایرپاد'], ['مگ سیف', 'مگسیف'], ['اپل واچ', 'واچ'], ['ای پد', 'ایپد'], ['مک دودو', 'مکدودو'], ['بی سیم', 'بیسیم'], ['چند تا', 'چندتا'], ['تمام شده', 'تمامشده'], ['این ماه', 'اینماه'], ['ماه قبل', 'ماهقبل'], ['ماه پیش', 'ماهقبل'], ['هفته قبل', 'هفتهقبل'], ['هفته پیش', 'هفتهقبل'], ['این هفته', 'اینهفته'], ['کم دارم', 'کمبود'], ['فروش نرفته', 'نفروخته']];
+  const SYN = { lightning: 'li', 'لایتنینگ': 'li', 'لایتنینگی': 'li', 'ایفونی': 'li', 'میکرو': 'micro', 'iphone': 'ایفون', 'ifon': 'ایفون', 'aifon': 'ایفون', 'samsung': 'سامسونگ', 'galaxy': 'گلکسی', 'xiaomi': 'شیائومی', 'شیاومی': 'شیائومی', 'redmi': 'ردمی', 'poco': 'پوکو', 'pro': 'پرو', 'max': 'مکس', 'plus': 'پلاس', 'mini': 'مینی', 'ultra': 'اولترا', 'الترا': 'اولترا', 'cable': 'کابل', 'kabl': 'کابل', 'وایرلس': 'بیسیم', 'wireless': 'بیسیم', 'case': 'قاب', 'cover': 'قاب', 'کاور': 'قاب', 'کیس': 'قاب', 'ghab': 'قاب', 'glass': 'گلس', 'شارژر': 'شارژ', 'اداپتور': 'شارژ', 'کلگی': 'شارژ', 'charger': 'شارژ', 'adapter': 'شارژ', 'sharjer': 'شارژ', 'handsfree': 'هندزفری', 'headphone': 'هدفون', 'هدست': 'هدفون', 'airpods': 'ایرپاد', 'airpod': 'ایرپاد', 'ایربادز': 'ایرپاد', 'powerbank': 'پاوربانک', 'magsafe': 'مگسیف', 'apple': 'اپل', 'watch': 'واچ', 'ipad': 'ایپد', 'آیپد': 'ایپد', 'speaker': 'اسپیکر', 'holder': 'هولدر', 'mcdodo': 'مکدودو', 'white': 'سفید', 'black': 'مشکی', 'سیاه': 'مشکی', 'یواسبی': 'usb', 'تایپسی': 'c' };
+  const STOP = new Set(['چند', 'چندتا', 'چقدر', 'چنده', 'دارم', 'داریم', 'داره', 'دارد', 'هست', 'است', 'هستن', 'کو', 'کجاست', 'لطفا', 'نشون', 'نشان', 'بده', 'بگو', 'ببینم', 'کدوم', 'کدام', 'چی', 'چه', 'همه', 'لیست', 'فهرست', 'ها', 'های', 'رو', 'را', 'از', 'برای', 'با', 'و', 'یه', 'در', 'به', 'تو', 'من', 'مون', 'ام', 'شده', 'اند', 'میخوام', 'می', 'خواهم', 'کن', 'بیار', 'اون', 'این', 'عدد', 'تومن', 'تومان', 'ریال', 'کجا', 'چطور', 'کالا', 'کالاها', 'کالاهای', 'جنس', 'اجناس', 'محصول', 'محصولات', 'مشتری', 'مشتریان', 'شخص', 'اقای', 'اقا', 'خانم', 'اخرین', 'جدید', 'جدیدترین', 'لطفاً', 'باید', 'بدم', 'بدیم', 'کنم', 'کنیم', 'کالاهایی', 'چیزهایی', 'چیا', 'چیه', 'کدومها', 'هایی', 'ای', 'بیشتر', 'کمتر', 'تایپ']);
+  const INTENT = {
+    stock: ['موجودی', 'موجود', 'انبار', 'مونده', 'باقی', 'تعداد', 'چندتا'], out: ['ناموجود', 'تمامشده', 'تموم', 'تمام', 'نداریم', 'صفر'], price: ['قیمت', 'نرخ', 'فی', 'چنده'],
+    balance: ['طلب', 'طلبکار', 'طلبکاره', 'طلبکارها', 'بدهی', 'بدهکار', 'بدهکاره', 'بدهکارها', 'بستانکار', 'بستانکارها', 'مانده', 'حساب', 'بدهیها'],
+    invoice: ['فاکتور', 'فاکتورهای', 'فاکتورها', 'خریدهای', 'فروشهای', 'خریدها', 'فروشها'], metric: ['فروش', 'سود', 'درآمد', 'خرید', 'هزینه', 'هزینهها', 'دریافت', 'پرداخت', 'گزارش', 'خلاصه'],
+    top: ['پرفروش', 'پرفروشترین', 'بیشترین', 'پرفروشها'], reorder: ['سفارش', 'کمبود', 'کسری'], stale: ['راکد', 'نفروخته', 'خوابیده'], cheque: ['چک', 'چکها', 'سررسید', 'قسط', 'اقساط'],
+    period: { 'امروز': 'today', 'دیروز': 'yesterday', 'هفته': 'week', 'اینهفته': 'week', 'هفتهقبل': 'prevweek', 'اینماه': 'mtd', 'ماه': 'mtd', 'ماهقبل': 'prevmonth', 'امسال': 'fytd', 'سال': 'fytd' }
+  };
+  Core.sTokens = function (text) {
+    let s = ' ' + Core.norm(text).replace(/([a-z])(\d)/g, '$1 $2').replace(/(\d)([a-z])/g, '$1 $2').replace(/([؀-ۿ])(\d)/g, '$1 $2').replace(/(\d)([؀-ۿ])/g, '$1 $2') + ' ';
+    for (const [a, b] of PHRASES) s = s.split(' ' + a + ' ').join(' ' + b + ' ');
+    s = s.replace(/(^|\s)(\d+(?:\.\d+)?)\s(هزار|هزارتایی)(?=\s|$)/g, (m, sp, n) => sp + Math.round(parseFloat(n) * 1000));
+    s = s.replace(UNIT_RX, (m, sp, n, u) => sp + n + UNITS[u]);
+    return s.trim().split(' ').filter(Boolean).map(t => SYN[t] || t);
+  };
+  const isNumTok = t => /^\d/.test(t);
+  const ACC_HEADS = new Set(['قاب', 'گلس', 'محافظ', 'کابل', 'شارژ', 'هولدر', 'پایه', 'نگهدارنده', 'باتری', 'بند', 'کیف', 'جاکارتی', 'مبدل', 'پاپ']);
+  function editLe(a, b, max) { if (Math.abs(a.length - b.length) > max) return false; let prev = Array.from({ length: b.length + 1 }, (_, j) => j); for (let i = 1; i <= a.length; i++) { const cur = [i]; let mn = i; for (let j = 1; j <= b.length; j++) { cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); if (cur[j] < mn) mn = cur[j]; } if (mn > max) return false; prev = cur; } return prev[b.length] <= max; }
+  // how well one query word matches one indexed word (0..1)
+  function tokMatch(q, t) {
+    if (q === t) return 1;
+    if (/^\d+(\.\d+)?$/.test(q) && t.startsWith(q) && /^[^\d.]/.test(t.slice(q.length))) return 0.9; // "256" → "256گیگ"
+    if (isNumTok(q) || isNumTok(t)) { if (/^\d+$/.test(q) && q.length >= 3 && /^\d+$/.test(t) && t.startsWith(q)) return 0.6; return 0; }
+    if (q.length >= 2 && t.startsWith(q)) return q.length >= 3 ? 0.8 : 0.55;
+    if (t.length >= 3 && q.startsWith(t) && q.length - t.length <= 3) return 0.6; // "کابلهای" → "کابل"
+    if (q.length >= 3 && t.includes(q)) return 0.45;
+    if (q.length >= 4 && editLe(q, t.slice(0, q.length + 2), q.length >= 7 ? 2 : 1)) return 0.42;
+    return 0;
+  }
+  // index over products / people, rebuilt only when the data changes
+  Core._pv = 0; // bumped when a product or person is edited in place
+  let sixKey = null, sixVal = null;
+  const searchIndex = st => { const k = [st.products, st.products.length, st.people, st.people.length, Core._pv]; if (sixKey && k.every((x, i) => x === sixKey[i])) return sixVal; sixKey = k; sixVal = buildIndex(st); return sixVal; };
+  const buildIndex = (st => {
+    const df = new Map(), add = toks => new Set(toks).forEach(t => df.set(t, (df.get(t) || 0) + 1));
+    const prods = st.products.map(p => { const cat = Core.catOf(p), toks = Core.sTokens(p.name + ' ' + (p.sku || '') + ' ' + (p.barcode || '')), ctoks = Core.sTokens(cat); add(toks.concat(ctoks)); return { p, cat, toks, ctoks, str: ' ' + toks.join(' ') + ' ' }; });
+    const people = st.people.map(p => { const toks = Core.sTokens(p.name + ' ' + (p.note || '')); add(toks); return { p, toks, phone: Core.toEn(p.phone || '').replace(/\D/g, ''), str: ' ' + toks.join(' ') + ' ' }; });
+    const vocab = [...df.keys()].filter(t => t.length >= 3 && !isNumTok(t));
+    return { df, n: Math.max(1, prods.length + people.length), prods, people, vocab };
+  });
+  const idf = (ix, t) => Math.log(1 + ix.n / (ix.df.get(t) || 1));
+  // close meanings, used at a lower weight: «شارژر آیفون» also finds «… اپل»
+  const ALT = { 'ایفون': ['اپل', 'li'], 'اپل': ['ایفون'], 'سامسونگ': ['گلکسی'], 'گلکسی': ['سامسونگ'], 'li': ['ایفون'], 'ایرپاد': ['هندزفری'], 'هندزفری': ['ایرپاد', 'هدفون'], 'هدفون': ['هندزفری'], 'شارژ': ['کابل'] };
+  function scoreDoc(ix, terms, toks, extra, alt) {
+    let sc = 0, hit = 0; const all = extra ? toks.concat(extra) : toks, nt = toks.length;
+    for (const q of terms) { let best = 0; for (let i = 0; i < all.length; i++) { const t = all[i], m = tokMatch(q, t); if (m) { const v = m * idf(ix, t) * (i < nt ? 1 : 0.6); if (v > best) best = v; } }
+      if (!best && alt && ALT[q]) for (const a of ALT[q]) for (const t of all) if (t === a) { const v = 0.55 * idf(ix, t); if (v > best) best = v; }
+      if (best) { hit++; sc += best; } }
+    return { sc, hit };
+  }
+  function rankProducts(st, ix, terms, qcats, stockOf, alt) {
+    if (!terms.length) return { full: [], partial: [] };
+    const phrase = ' ' + terms.join(' ') + ' ', full = [], partial = [];
+    for (const d of ix.prods) {
+      const r = scoreDoc(ix, terms, d.toks, d.ctoks, alt); if (!r.hit) continue;
+      let sc = r.sc;
+      if (terms.length > 1 && d.str.includes(phrase)) sc += 1.5;
+      if (qcats.size && !qcats.has(d.cat)) sc -= ACC_HEADS.has(d.toks[0]) ? 1.6 : 1; // «قاب سامسونگ A15» when the question was the phone itself
+      if (d.toks[0] === terms[0]) sc += 0.6;
+      if (qcats.has(d.cat)) sc += 1.8;
+      if (stockOf(d.p.id) > 0) sc += 0.35;
+      sc -= d.toks.length * 0.02;
+      (r.hit === terms.length ? full : partial).push({ p: d.p, cat: d.cat, sc, hit: r.hit });
+    }
+    const by = (a, b) => b.sc - a.sc || faCmpCore(a.p.name, b.p.name);
+    return { full: full.sort(by), partial: partial.filter(x => x.hit >= Math.ceil(terms.length / 2)).sort((a, b) => b.hit - a.hit || by(a, b)) };
+  }
+  const collator = typeof Intl !== 'undefined' && Intl.Collator ? new Intl.Collator('fa', { numeric: true }) : null;
+  const faCmpCore = (a, b) => (collator ? collator.compare(a, b) : String(a).localeCompare(String(b)));
+  function rankPeople(ix, terms, digits) {
+    const out = [];
+    for (const d of ix.people) {
+      let sc = 0, hit = 0;
+      if (digits && digits.length >= 3 && d.phone && (d.phone.includes(digits) || d.phone.includes(digits.replace(/^(0098|98)/, '0')))) { sc += 5; hit = Math.max(1, terms.length); }
+      else { const r = scoreDoc(ix, terms, d.toks); sc = r.sc; hit = r.hit; if (terms.length > 1 && d.str.includes(' ' + terms.join(' ') + ' ')) sc += 2; if (d.toks[0] === terms[0]) sc += 0.5; }
+      if (hit && hit >= terms.length) out.push({ p: d.p, sc });
+    }
+    return out.sort((a, b) => b.sc - a.sc || faCmpCore(a.p.name, b.p.name));
+  }
+  // the categories a query word points at ("کابل" → cables, "شارژر" → chargers)
+  const CANON_CAT = { 'شارژ': 'آداپتور و شارژر', 'قاب': 'قاب و کاور', 'گلس': 'گلس و محافظ صفحه', 'هندزفری': 'هندزفری و هدفون', 'هدفون': 'هندزفری و هدفون', 'ایرپاد': 'هندزفری و هدفون', 'مگسیف': 'شارژر وایرلس و مگ‌سیف', 'واچ': 'ساعت هوشمند', 'ایپد': 'تبلت و آیپد' };
+  function queryCats(terms) { const s = new Set(); if (terms.includes('کابل')) { s.add('کابل شارژ و داده'); return s; } terms.forEach(t => { if (CANON_CAT[t]) { s.add(CANON_CAT[t]); return; } if (t.length < 2 || isNumTok(t)) return; const c = Core.guessCategory(t); if (c !== Core.OTHER_CAT || /قلم|لوازم/.test(t)) s.add(c); }); return s; }
+  function didYouMean(ix, terms) { let changed = false; const out = terms.map(t => { if (isNumTok(t) || t.length < 3 || ix.df.has(t) || ix.vocab.some(v => v.startsWith(t))) return t; let best = null, bd = 9; for (const v of ix.vocab) { if (Math.abs(v.length - t.length) > 2) continue; for (let k = 1; k <= 2; k++) if (k < bd && editLe(t, v, k)) { bd = k; best = v; break; } } if (best) { changed = true; return best; } return t; }); return changed ? out.join(' ') : null; }
+
+  // smart match for list filters (pickers, product/people lists): every query word must match; returns a score (0 = no match)
+  const mtCache = new Map();
+  Core.matchScore = function (text, q) {
+    const qt = Core.sTokens(q).filter(t => !STOP.has(t)); if (!qt.length) return 1;
+    let tt = mtCache.get(text); if (!tt) { if (mtCache.size > 50000) mtCache.clear(); tt = Core.sTokens(text); mtCache.set(text, tt); }
+    let sc = 0;
+    for (const x of qt) { let b = 0; for (const t of tt) { const m = tokMatch(x, t); if (m > b) b = m; } if (!b && ALT[x]) for (const a of ALT[x]) if (tt.includes(a)) b = 0.5; if (!b) return 0; sc += b; }
+    return sc + (tt[0] === qt[0] ? 0.5 : 0);
+  };
+  const PRETTY = { li: 'لایتنینگ', c: 'C', 'ایفون': 'آیفون', 'ایپد': 'آیپد', 'شارژ': 'شارژر', 'اداپتور': 'آداپتور', 'ایرپاد': 'ایرپاد', 'مگسیف': 'مگ‌سیف', 'مکدودو': 'مک‌دودو', 'بیسیم': 'بی‌سیم', 'امپر': 'آمپر' };
+  Core.prettyTerms = terms => terms.map(t => PRETTY[t] || t.replace(/^(\d+(?:\.\d+)?)(\D+)$/, (m, n, u) => n + ' ' + (u === 'امپر' ? 'آمپر' : u))).join(' ');
+  Core.search = function (st, q, o) {
+    o = o || {}; const today = o.today || Core.todayISO();
+    const res = { q, intent: null, terms: [], products: [], partial: false, people: [], cats: [], invoices: [], tx: [], serials: [], answer: null, suggestion: null };
+    const raw = Core.toEn(String(q || '')).trim(); if (!raw) return res;
+    const ix = searchIndex(st), rp = Core.replay(st), stockOf = id => { const s = rp.stock[id]; return s ? s.stock : 0; };
+    const digits = raw.replace(/[\s\-+]/g, '');
+    // ── pure numbers: IMEI / serial tail, phone, invoice number, amount, barcode ──
+    if (/^\d{3,}$/.test(digits)) {
+      res.intent = 'number';
+      if (digits.length >= 4) res.serials = Core.serialHistory(st, digits, 10);
+      if (/^(0098|98|0)?9\d{1,9}$/.test(digits)) res.people = rankPeople(ix, [], digits).slice(0, 10).map(x => x.p);
+      if (digits.length <= 7) res.invoices = st.invoices.filter(i => Core.toEn(i.no) === digits);
+      if (digits.length >= 4) { const amt = Core.parseMoney(digits); if (amt) { st.invoices.forEach(i => { if (Core.invoiceTotals(i).total === amt && !res.invoices.includes(i)) res.invoices.push(i); }); res.tx = st.tx.filter(t => t.amount === amt && t.type !== 'invoice').slice(-10); } }
+      res.products = st.products.filter(p => (p.barcode && Core.toEn(p.barcode).includes(digits)) || (p.sku && Core.toEn(p.sku).replace(/\D/g, '') === digits)).slice(0, 10).map(p => ({ p, cat: Core.catOf(p), stock: stockOf(p.id) }));
+      return res;
+    }
+    // ── words: intent + terms ──
+    const toks = Core.sTokens(raw), has = list => toks.some(t => list.includes(t));
+    const periodTok = toks.find(t => INTENT.period[t]), period = periodTok ? INTENT.period[periodTok] : null;
+    const intentWords = new Set([].concat(INTENT.stock, INTENT.out, INTENT.price, INTENT.balance, INTENT.invoice, INTENT.metric, INTENT.top, INTENT.reorder, INTENT.stale, INTENT.cheque, Object.keys(INTENT.period), ['سریال', 'imei', 'ایمی']));
+    const terms = [];
+    toks.filter(t => !STOP.has(t) && !intentWords.has(t)).forEach(t => {
+      if (t.length >= 5 && !isNumTok(t) && !ix.df.has(t) && !ix.vocab.some(v => v.startsWith(t))) { for (let k = 2; k <= t.length - 2; k++) { const a = t.slice(0, k), b = t.slice(k); if (ix.df.has(a) && ix.df.has(b)) { terms.push(a, b); return; } } }
+      terms.push(t);
+    });
+    res.terms = terms;
+    if (/^(سریال|imei|ایمی)\b/i.test(raw) || (/[a-z]/i.test(raw) && /\d{4,}/.test(raw) && raw.replace(/\s/g, '').length >= 8)) { const sn = raw.replace(/^(سریال|imei|ایمی)\s*/i, ''); res.serials = Core.serialHistory(st, sn, 20); if (res.serials.length) { res.intent = 'serial'; return res; } }
+    const qcats = queryCats(terms); let pr = rankProducts(st, ix, terms, qcats, stockOf); if (!pr.full.length) { const p2 = rankProducts(st, ix, terms, qcats, stockOf, true); if (p2.full.length) pr = p2; }
+    let prods = pr.full; if (!prods.length && pr.partial.length) { prods = pr.partial; res.partial = true; }
+    const ppl = terms.length ? rankPeople(ix, terms) : [];
+    const rg = period ? Core.periodRange(period, today, o.fyMonth || 1) : null;
+    const decorate = list => list.map(x => Object.assign(x, { stock: stockOf(x.p.id), avg: rp.stock[x.p.id] ? Math.round(rp.stock[x.p.id].avg) : 0 }));
+    if (has(INTENT.balance)) {
+      res.intent = 'balance'; const bal = Core.balances(st);
+      const list = ppl.length ? ppl.map(x => x.p) : st.people.slice().filter(p => (has(['طلبکار', 'طلبکاره', 'طلبکارها', 'بستانکار', 'بستانکارها']) ? bal[p.id] < 0 : bal[p.id] > 0)).sort((a, b) => Math.abs(bal[b.id] || 0) - Math.abs(bal[a.id] || 0));
+      res.answer = { kind: 'balance', rows: list.slice(0, 20).map(p => ({ p, b: bal[p.id] || 0 })), total: list.length };
+      return res;
+    }
+    if (has(INTENT.cheque)) { res.intent = 'cheque'; const open = st.cheques.filter(c => !c.done).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1)); res.answer = { kind: 'cheque', rows: (ppl.length ? open.filter(c => ppl.some(x => x.p.id === c.personId)) : open).filter(c => !rg || (c.dueDate >= rg.from && c.dueDate <= rg.to)).slice(0, 30) }; return res; }
+    if (has(INTENT.reorder) && (!terms.length || !prods.length)) { res.intent = 'reorder'; res.answer = { kind: 'reorder', rows: Core.stockInsights(st, today).reorder.slice(0, 30) }; return res; }
+    if (has(INTENT.stale) && (!terms.length || !prods.length)) { res.intent = 'stale'; res.answer = { kind: 'stale', rows: Core.stockInsights(st, today).stale.slice(0, 30) }; return res; }
+    if (has(INTENT.top)) { res.intent = 'top'; const r2 = rg || Core.periodRange('mtd', today); res.answer = { kind: 'top', label: periodTok || 'اینماه', rows: Core.topProducts(st, r2.from, r2.to, 15).filter(x => x.product && (!terms.length || prods.some(y => y.p.id === x.product.id))) }; return res; }
+    if (has(INTENT.invoice) || (has(['خرید', 'فروش']) && !period && (ppl.length || prods.length) && terms.length) || (has(['خرید', 'فروش']) && period && terms.length && ppl.length && (!prods.length || ppl[0].sc >= prods[0].sc))) {
+      res.intent = 'invoices'; const type = has(['خریدهای', 'خریدها', 'خرید']) ? 'purchase' : has(['فروشهای', 'فروشها', 'فروش']) ? 'sale' : null;
+      const pid = new Set(ppl.slice(0, 3).map(x => x.p.id)), prid = new Set(prods.slice(0, 30).map(x => x.p.id));
+      let list = st.invoices.filter(i => (!type || i.type === type) && (!rg || (i.date >= rg.from && i.date <= rg.to)));
+      const no = terms.find(t => /^\d+$/.test(t)); if (no && !pid.size && !prid.size) list = list.filter(i => Core.toEn(i.no) === no);
+      else if (pid.size && (!prid.size || ppl[0].sc >= (prods[0] ? prods[0].sc : 0))) list = list.filter(i => pid.has(i.personId)); else if (prid.size) list = list.filter(i => i.items.some(l => prid.has(l.productId)));
+      res.invoices = list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)).slice(0, 30);
+      res.people = ppl.slice(0, 3).map(x => x.p); res.invType = type;
+      return res;
+    }
+    if (period && (has(INTENT.metric) || !terms.length)) {
+      res.intent = 'report'; const r = Core.report(st, rg.from, rg.to);
+      const ans = { kind: 'report', label: periodTok, k: period, rg, r, n: st.invoices.filter(i => i.type === 'sale' && i.date >= rg.from && i.date <= rg.to).length };
+      if (terms.length && prods.length) { // sales of these products in the period
+        const ids = new Set(prods.map(x => x.p.id)); let qty = 0, rev = 0;
+        st.invoices.forEach(i => { if (i.date < rg.from || i.date > rg.to || (i.type !== 'sale' && i.type !== 'sale_return')) return; const sg = i.type === 'sale' ? 1 : -1; Core.invoiceTotals(i).lines.forEach(l => { if (ids.has(l.productId)) { qty += sg * l.qty; rev += sg * l.net; } }); });
+        ans.items = { qty: r3(qty), rev: Math.round(rev), count: ids.size };
+      }
+      res.answer = ans; res.products = decorate(prods.slice(0, 10)); return res;
+    }
+    if ((has(INTENT.stock) || has(INTENT.out)) && !terms.length) {
+      res.intent = 'stock'; const out = has(INTENT.out); let list = st.products.map(p => ({ p, cat: Core.catOf(p), sc: 0, stock: stockOf(p.id), avg: rp.stock[p.id] ? Math.round(rp.stock[p.id].avg) : 0 })).filter(x => (out ? x.stock <= 0 : x.stock > 0));
+      list.sort((a, b) => (out ? faCmpCore(a.p.name, b.p.name) : b.stock - a.stock)); res.products = list;
+      res.answer = { kind: 'stock', total: list.length, inStock: out ? 0 : list.length, qty: out ? 0 : r3(list.reduce((t, x) => t + x.stock, 0)), out, all: true }; return res;
+    }
+    if ((has(INTENT.stock) || has(INTENT.out) || has(INTENT.price)) && terms.length) {
+      res.intent = has(INTENT.price) ? 'price' : 'stock';
+      let list = decorate(prods);
+      if (has(INTENT.out)) list = list.filter(x => x.stock <= 0); else if (res.intent === 'stock' && has(['موجود', 'موجودی']) && list.some(x => x.stock > 0) && has(['موجود'])) list = list.filter(x => x.stock > 0);
+      if (res.intent === 'stock') list.sort((a, b) => (b.stock > 0) - (a.stock > 0) || (b.stock - a.stock) || b.sc - a.sc);
+      const inStock = list.filter(x => x.stock > 0);
+      res.answer = { kind: res.intent, total: list.length, inStock: inStock.length, qty: r3(inStock.reduce((t, x) => t + x.stock, 0)), out: has(INTENT.out) };
+      res.products = list; if (!list.length) res.suggestion = didYouMean(ix, terms); return res;
+    }
+    // ── plain search ──
+    res.intent = 'find';
+    res.products = decorate(prods); res.people = ppl.slice(0, 10).map(x => x.p);
+    const cc = Core.categoryCounts(st); res.cats = cc.filter(c => qcats.has(c.cat) || (terms.length && terms.every(t => Core.sTokens(c.cat).some(x => tokMatch(t, x) >= 0.55))));
+    if (raw.length >= 3) st.invoices.forEach(i => { if (res.invoices.length < 10 && ((i.note && terms.every(t => Core.sTokens(i.note).some(x => tokMatch(t, x) >= 0.55))) || i.items.some(l => l.note && terms.every(t => Core.sTokens(l.note).some(x => tokMatch(t, x) >= 0.55))))) res.invoices.push(i); });
+    if (!res.products.length && !res.people.length && !res.cats.length && !res.invoices.length) res.suggestion = didYouMean(ix, terms);
+    return res;
   };
 
   /* products backup (export / import), for moving or rebuilding the warehouse */

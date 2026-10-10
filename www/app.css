@@ -197,3 +197,6 @@ select.inp{appearance:auto}
 .t-purchase i{background:var(--blue)}.t-sale i{background:var(--green)}.t-sale_return i{background:#f59e0b}.t-purchase_return i{background:var(--red)}
 .snh{font-size:calc(11.5px * var(--fs,1));padding:0 4px}
 @media (max-width:420px){.top .logo{display:none}}
+.gs-why{display:flex;align-items:center;gap:4px;color:var(--mut);font-size:calc(12.5px * var(--fs,1));margin:2px 2px 8px}.gs-why .ic{width:1em;height:1em}
+.gs-sug{display:block;width:100%;text-align:right;cursor:pointer}
+.card.ans b{font-size:calc(14.5px * var(--fs,1))}

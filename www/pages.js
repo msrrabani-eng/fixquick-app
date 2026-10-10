@@ -292,7 +292,7 @@ function pageProducts() {
   const all = Core.productStats(S), cats = Core.categoryCounts(S);
   if (UI.prodCat && !cats.some(c => c.cat === UI.prodCat)) UI.prodCat = '';
   const keep = new Set(prodFiltered().map(p => p.id)); const st = all.filter(x => keep.has(x.product.id));
-  st.forEach(x => { x.cat = Core.catOf(x.product); }); st.sort((a, b) => (UI.prodCat ? 0 : Core.catRank(a.cat) - Core.catRank(b.cat) || faCmp(a.cat, b.cat)) || faCmp(a.product.name, b.product.name));
+  st.forEach(x => { x.cat = Core.catOf(x.product); }); if (UI.prodQ.trim()) { const q = UI.prodQ; st.forEach(x => { x.qs = Core.matchScore(x.product.name + ' ' + (x.product.sku || '') + ' ' + x.cat, q); }); st.sort((a, b) => b.qs - a.qs || faCmp(a.product.name, b.product.name)); } else st.sort((a, b) => (UI.prodCat ? 0 : Core.catRank(a.cat) - Core.catRank(b.cat) || faCmp(a.cat, b.cat)) || faCmp(a.product.name, b.product.name));
   let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length), '', fa(cats.length) + ' دسته') + (can('cost') ? stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', UNIT()) : stat('دسته‌ها', fa(cats.length))) + '</div>';
   h += '<div class="toolbar ptools"><button class="btn blue sm" data-act="bulkProducts">' + ico('listplus') + 'افزودن چند کالا</button><button class="btn ghost sm" data-act="scanProd">' + ico('scan') + 'اسکن</button><button class="btn ghost sm" data-act="labelsAll">' + ico('qr') + 'برچسب</button><button class="btn ghost sm" data-act="go" data-h="#/stock">' + ico('up') + 'تحلیل انبار</button><button class="btn ghost sm" data-act="whTools">' + ico('archive') + 'پشتیبان و حذف</button></div>';
   h += '<input class="inp" id="prod-q" placeholder="جستجوی کالا یا دسته…" value="' + esc(UI.prodQ) + '" autocomplete="off">' + (cats.length ? catChips(cats, UI.prodCat || '', all.length) : '');
@@ -600,7 +600,9 @@ const actions = {
   },
   plGo: d => { UI.rep = d.k; goHash('#/reports'); },
   more: d => { UI[d.k] += { limInv: 100, limProd: 100, limLedger: 200 }[d.k] || 150; render(); },
-  searchGo: d => { UI.searchQ = d.q; rememberSearch(d.q); goHash('#/search'); if (location.hash === '#/search') render(); }, catGo: d => { UI.prodCat = d.c; UI.prodQ = ''; goHash('#/products'); }, repGo: d => { UI.rep = d.k; goHash('#/reports'); },
+  repGoR: d => { UI.rep = 'custom'; UI.repFrom = d.f; UI.repTo = d.to; goHash('#/reports'); },
+  searchMore: () => { UI.searchLim = (UI.searchLim || 30) + 50; render(); },
+  searchGo: d => { UI.searchLim = 30; UI.searchQ = d.q; rememberSearch(d.q); goHash('#/search'); if (location.hash === '#/search') render(); }, catGo: d => { UI.prodCat = d.c; UI.prodQ = ''; goHash('#/products'); }, repGo: d => { UI.rep = d.k; goHash('#/reports'); },
   bulkProducts: () => bulkProducts(), shareReorder: () => shareReorder(), whTools: () => warehouseTools(), prodImport: () => productImportPick(), prodExport: () => productExport(), bulkPeople: () => bulkPeople(),
   scanProd: () => openScanner({ title: 'اسکن کالا', onCode: t => { const p = findProductByCode(t); if (p) prodOpen(p.id); else confirmBox('کالایی با کد «' + t + '» پیدا نشد. کالای جدید با این بارکد ساخته شود؟', 'ساخت کالا').then(y => { if (y) productForm(null, { barcode: t }); }); } }),
   labelsAll: () => { const list = prodFiltered(); if (list.length > 960) return toast('اول با جستجو فهرست را کوتاه‌تر کنید (حداکثر ۹۶۰ کالا).', true); labelSheet(list); },
@@ -685,7 +687,7 @@ document.addEventListener('click', e => {
 });
 let searchT;
 document.addEventListener('input', e => {
-  const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ', 'gs-q': 'searchQ' }[i.id]; if (!m) return; UI[m] = i.value; UI.limPeople = 150; UI.limInv = 100; UI.limProd = 100; clearTimeout(searchT); searchT = setTimeout(() => { const cur = document.activeElement === i; const pos = i.selectionStart; render(); const n = $('#' + i.id); if (n && cur) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } } }, 180);
+  const i = e.target; const m = { 'people-q': 'peopleQ', 'inv-q': 'invQ', 'prod-q': 'prodQ', 'gs-q': 'searchQ' }[i.id]; if (!m) return; UI[m] = i.value; UI.searchLim = 30; UI.limPeople = 150; UI.limInv = 100; UI.limProd = 100; clearTimeout(searchT); searchT = setTimeout(() => { const cur = document.activeElement === i; const pos = i.selectionStart; render(); const n = $('#' + i.id); if (n && cur) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } } }, 180);
 });
 let lastFull = '';
 window.addEventListener('hashchange', () => { if ((location.hash || '#/home') !== lastFull) render(); }); // ignore duplicate events for the same address (would wipe an open form)
@@ -923,6 +925,7 @@ async function boot() {
   authGate();
   try { const A = capApp(); if (A && A.addListener) A.addListener('backButton', onBackButton); } catch (e) { /* older build without the App plugin: Android's default back */ }
   setTimeout(() => autoBackup(), 4000);
+  setTimeout(() => { try { Core.search(S, 'ا'); } catch (e) { /* warm up the search index */ } }, 6000);
   let hiddenAt = 0; document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); if (Date.now() - autoBkAt > 30 * 60e3) autoBackup(true); return; } autoBackup(); if (hiddenAt && Date.now() - hiddenAt > 60e3 && !lockedNow) authGate(true); });
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isNative()) navigator.serviceWorker.register('sw.js').catch(() => { });
 }

@@ -90,7 +90,7 @@ const faColl = (window.Intl && Intl.Collator) ? new Intl.Collator('fa', { numeri
 function faCmp(a, b) { return faColl ? faColl.compare(a, b) : String(a).localeCompare(String(b), 'fa'); }
 /* search: Persian/English digits, Arabic ي/ك, half-space and word order don't matter */
 function normQ(s) { return Core.norm(s); }
-function matchQ(text, q) { const t = normQ(text), w = normQ(q).split(' ').filter(Boolean); return w.every(x => t.includes(x)); }
+function matchQ(text, q) { const t = normQ(text), w = normQ(q).split(' ').filter(Boolean); return w.every(x => t.includes(x)) || Core.matchScore(text, q) > 0; }
 function pickList(title, items, onPick, o) {
   o = o || {};
   // optional category chips (items carry .cat); the last chosen category is remembered
@@ -103,6 +103,7 @@ function pickList(title, items, onPick, o) {
     const q = sh.q('#pk-s').value.trim();
     let all = items.filter(i => (!cat || (q && cat === TOP) || (cat === TOP ? top.includes(String(i.value)) : i.cat === cat)) && (!q || matchQ(i.label + ' ' + (i.sub || '') + ' ' + (i.cat || ''), q)));
     if (cat === TOP) all.sort((a, b) => top.indexOf(String(a.value)) - top.indexOf(String(b.value)));
+    else if (q) { const sc = new Map(all.map(i => [i, Core.matchScore(i.label + ' ' + (i.sub || '') + ' ' + (i.cat || ''), q)])); all.sort((a, b) => sc.get(b) - sc.get(a)); }
     const f = all.slice(0, 80);
     let last = null;
     sh.q('#pk-l').innerHTML = (all.length > f.length ? '<p class="hint center">' + Core.toFa(all.length) + ' مورد؛ برای پیدا کردن سریع‌تر، جستجو کنید یا دسته را انتخاب کنید.</p>' : '') + (f.length ? f.map(i => '<button type="button" class="item" data-v="' + esc(i.value) + '"><span>' + esc(i.label) + (i.sub || (o.cats && !cat && i.cat) ? '<small>' + esc([o.cats && !cat ? i.cat : '', i.sub].filter(Boolean).join(' · ')) + '</small>' : '') + '</span>' + (i.right ? '<em class="' + (i.cls || '') + '">' + esc(i.right) + '</em>' : '') + '</button>').join('') : '<div class="empty">موردی پیدا نشد</div>');

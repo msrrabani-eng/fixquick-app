@@ -1,6 +1,6 @@
 /* Pages, forms and actions */
 'use strict';
-const UI = { peopleQ: '', peopleF: 'all', invQ: '', invF: 'all', prodQ: '', chqTab: 'open', rep: 'mtd', repFrom: null, repTo: null, stmtFrom: null, stmtTo: null, showArchived: false, limPeople: 150, limInv: 100, limProd: 100, limChq: 150, limLedger: 200 };
+const UI = { peopleQ: '', peopleF: 'all', invQ: '', invF: 'all', prodQ: '', prodCat: '', pickCat: '', chqTab: 'open', rep: 'mtd', repFrom: null, repTo: null, stmtFrom: null, stmtTo: null, showArchived: false, limPeople: 150, limInv: 100, limProd: 100, limChq: 150, limLedger: 200 };
 // long lists show the first N rows; «نمایش بیشتر» adds more (keeps phones fast with thousands of records)
 function moreBtn(k, shown, total) { return total > shown ? '<button class="btn ghost" data-act="more" data-k="' + k + '">نمایش بیشتر (' + fa(shown) + ' از ' + fa(total) + ')</button>' : ''; }
 const today = () => Core.todayISO();
@@ -241,23 +241,42 @@ async function submitInvoice(e) {
 }
 
 /* ─────────── PRODUCTS ─────────── */
+function catChips(cats, cur, total) {
+  return '<div class="chips cats">' + [['', 'همه', total]].concat(cats.map(c => [c.cat, c.cat, c.n])).map(o => '<button type="button" class="chip' + (cur === o[0] ? ' on' : '') + '" data-act="chip" data-k="prodCat" data-v="' + esc(o[0]) + '">' + esc(o[1]) + ' <i>' + fa(o[2]) + '</i></button>').join('') + '</div>';
+}
+function prodFiltered() {
+  const q = UI.prodQ.trim(); let list = S.products;
+  if (UI.prodCat) list = list.filter(p => Core.catOf(p) === UI.prodCat);
+  if (q) list = list.filter(p => matchQ(p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + Core.catOf(p), q));
+  return list;
+}
 function pageProducts() {
-  const q = Core.toEn(UI.prodQ).trim().toLowerCase(); const all = Core.productStats(S); let st = all;
-  if (q) st = st.filter(x => matchQ(x.product.name + ' ' + x.product.sku, q)); st.sort((a, b) => faCmp(a.product.name, b.product.name));
-  let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length)) + stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', UNIT()) + '</div><input class="inp" id="prod-q" placeholder="جستجوی کالا…" value="' + esc(UI.prodQ) + '" autocomplete="off">';
-  h += st.length ? '<div class="card flush">' + st.slice(0, UI.limProd).map(x => '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>').join('') + '</div>' + moreBtn('limProd', Math.min(UI.limProd, st.length), st.length) : empty(ico('package'), 'کالایی ثبت نشده است.', '<button class="btn blue" data-act="addProduct">+ افزودن کالا</button>');
-  h += '<div class="row2"><button class="btn ghost" data-act="scanProd">' + ico('scan') + 'اسکن کالا</button><button class="btn ghost" data-act="labelsAll">' + ico('qr') + 'برچسب کیو آر</button></div><button class="lnk center" data-act="bulkProducts">' + ico('listplus') + 'افزودن چند کالا فقط با نام</button>';
+  const all = Core.productStats(S), cats = Core.categoryCounts(S);
+  if (UI.prodCat && !cats.some(c => c.cat === UI.prodCat)) UI.prodCat = '';
+  const keep = new Set(prodFiltered().map(p => p.id)); const st = all.filter(x => keep.has(x.product.id));
+  st.forEach(x => { x.cat = Core.catOf(x.product); }); st.sort((a, b) => (UI.prodCat ? 0 : Core.catRank(a.cat) - Core.catRank(b.cat) || faCmp(a.cat, b.cat)) || faCmp(a.product.name, b.product.name));
+  let h = '<div class="stats">' + stat('تعداد کالا', fa(all.length), '', fa(cats.length) + ' دسته') + stat('ارزش کل انبار', fmt(Core.inventoryValue(S)), '', UNIT()) + '</div>';
+  h += '<div class="toolbar ptools"><button class="btn blue sm" data-act="bulkProducts">' + ico('listplus') + 'افزودن چند کالا</button><button class="btn ghost sm" data-act="scanProd">' + ico('scan') + 'اسکن</button><button class="btn ghost sm" data-act="labelsAll">' + ico('qr') + 'برچسب</button><button class="btn ghost sm" data-act="whTools">' + ico('archive') + 'پشتیبان و حذف</button></div>';
+  h += '<input class="inp" id="prod-q" placeholder="جستجوی کالا یا دسته…" value="' + esc(UI.prodQ) + '" autocomplete="off">' + (cats.length ? catChips(cats, UI.prodCat || '', all.length) : '');
+  if (st.length) {
+    let last = null, rows = '';
+    st.slice(0, UI.limProd).forEach(x => {
+      if (!UI.prodCat && x.cat !== last) { last = x.cat; rows += '<div class="grp">' + esc(x.cat) + '</div>'; }
+      rows += '<button class="row" data-act="prodOpen" data-id="' + x.product.id + '"><span><b>' + esc(x.product.name) + '</b><small>' + (x.product.sku ? esc(x.product.sku) + ' · ' : '') + 'میانگین خرید: ' + fmt(x.avg) + '</small></span><span class="end"><em class="' + (x.low ? 'debit' : '') + '">' + Core.fmtQty(x.stock) + ' ' + esc(x.product.unit) + '</em><small>' + fmt(x.value) + '</small></span></button>';
+    });
+    h += '<div class="card flush">' + rows + '</div>' + moreBtn('limProd', Math.min(UI.limProd, st.length), st.length);
+  } else h += empty(ico('package'), all.length ? 'موردی پیدا نشد.' : 'کالایی ثبت نشده است.', all.length ? '' : '<div class="row2"><button class="btn blue" data-act="addProduct">+ افزودن کالا</button><button class="btn ghost" data-act="prodImport">' + ico('folder') + 'ورود از فایل</button></div>');
   return { title: 'انبار و کالاها', html: h, fab: ['addProduct', '+'] };
 }
 function productForm(p, o) {
   o = o || {};
-  const sh = sheet(p ? 'ویرایش کالا' : o.inInvoice ? 'کالای جدید (به انبار هم اضافه می‌شود)' : 'کالای جدید', '<form id="gf"><label class="fld"><span>نام کالا</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><div class="row2"><label class="fld"><span>کد (اختیاری)</span><input class="inp ltr" name="sku" value="' + esc(p ? p.sku : '') + '"></label><label class="fld"><span>واحد</span><input class="inp" name="unit" value="' + esc(p ? p.unit : 'عدد') + '"></label></div><label class="fld"><span>بارکد کارخانه (اختیاری)</span><div class="inrow"><input class="inp ltr" name="barcode" value="' + esc(p ? (p.barcode || '') : (o.barcode || '')) + '" autocomplete="off"><button type="button" class="btn ghost sm" id="gf-scan">' + ico('scan') + '</button></div></label>' + moneyField('salePrice', p ? p.salePrice : 0, 'قیمت فروش پیش‌فرض') + moneyField('buyPrice', p ? p.buyPrice : 0, 'قیمت خرید پیش‌فرض') + (p || o.inInvoice ? '' : '<label class="fld"><span>موجودی اولیه (اختیاری)</span><input class="inp ltr" name="openQty" inputmode="decimal" placeholder="۰" autocomplete="off"></label><p class="hint">اگر همین الان از این کالا دارید، تعدادش را بنویسید. با «قیمت خرید» بالا در انبار ثبت می‌شود و در سود و زیان حساب نمی‌شود. اگر فقط می‌خواهید نام کالا در فهرست باشد، فقط «نام کالا» را بنویسید و بقیه را خالی بگذارید.</p>') + '<label class="fld"><span>حداقل موجودی (هشدار)</span><input class="inp ltr" name="minStock" inputmode="decimal" value="' + fa(p ? p.minStock : 0) + '"></label><button class="btn blue" type="submit">ذخیره</button></form>');
-  const f = sh.q('#gf'); sh.q('#gf-scan').onclick = () => openScanner({ title: 'اسکن بارکد کالا', onCode: t => { f.barcode.value = t; } }); f.onsubmit = async e => { e.preventDefault(); const d = { name: f.name.value, barcode: f.barcode.value, sku: f.sku.value, unit: f.unit.value, salePrice: Core.parseMoney(f.salePrice.value || '0'), buyPrice: Core.parseMoney(f.buyPrice.value || '0'), minStock: Core.parseNum(f.minStock.value || '0') }; if (isNaN(d.salePrice) || isNaN(d.buyPrice) || isNaN(d.minStock)) return toast('مقادیر عددی نامعتبر است.', true); const oq = (!p && f.openQty && f.openQty.value.trim() !== '') ? Core.parseNum(f.openQty.value) : 0; if (isNaN(oq) || oq < 0) return toast('موجودی اولیه نامعتبر است.', true); if (oq > 0 && !(d.buyPrice > 0)) return toast('برای موجودی اولیه، قیمت خرید را هم وارد کنید.', true); let r = p ? Core.editProduct(S, p.id, d) : Core.addProduct(S, d); if (o.onSaved && r.ok && !p) { await save(); sh.close(); toast('کالا به انبار اضافه شد.'); o.onSaved(r.product); return; } if (r.ok && !p && oq > 0) { const a = Core.addAdjust(S, { productId: r.product.id, qty: oq, cost: d.buyPrice, date: today(), note: 'موجودی اولیه', opening: true }); if (!a.ok) { Core.deleteProduct(S, r.product.id); r = a; } } if (await done(r, 'ذخیره شد.')) sh.close(); };
+  const sh = sheet(p ? 'ویرایش کالا' : o.inInvoice ? 'کالای جدید (به انبار هم اضافه می‌شود)' : 'کالای جدید', '<form id="gf"><label class="fld"><span>نام کالا</span><input class="inp" name="name" value="' + esc(p ? p.name : '') + '" autocomplete="off"></label><div class="row2"><label class="fld"><span>کد (اختیاری)</span><input class="inp ltr" name="sku" value="' + esc(p ? p.sku : '') + '"></label><label class="fld"><span>واحد</span><input class="inp" name="unit" value="' + esc(p ? p.unit : 'عدد') + '"></label></div><label class="fld"><span>دسته‌بندی <small class="cat-auto">(خودکار از روی نام؛ در صورت نیاز عوض کنید)</small></span><input class="inp" name="cat" list="cat-list" autocomplete="off" value="' + esc(p ? Core.catOf(p) : (o.cat || '')) + '" data-auto="' + (p && p.category ? '0' : '1') + '"><datalist id="cat-list">' + Array.from(new Set(Core.CATS.concat(S.products.map(Core.catOf)))).map(c => '<option value="' + esc(c) + '">').join('') + '</datalist></label><label class="fld"><span>بارکد کارخانه (اختیاری)</span><div class="inrow"><input class="inp ltr" name="barcode" value="' + esc(p ? (p.barcode || '') : (o.barcode || '')) + '" autocomplete="off"><button type="button" class="btn ghost sm" id="gf-scan">' + ico('scan') + '</button></div></label>' + moneyField('salePrice', p ? p.salePrice : 0, 'قیمت فروش پیش‌فرض') + moneyField('buyPrice', p ? p.buyPrice : 0, 'قیمت خرید پیش‌فرض') + (p || o.inInvoice ? '' : '<label class="fld"><span>موجودی اولیه (اختیاری)</span><input class="inp ltr" name="openQty" inputmode="decimal" placeholder="۰" autocomplete="off"></label><p class="hint">اگر همین الان از این کالا دارید، تعدادش را بنویسید. با «قیمت خرید» بالا در انبار ثبت می‌شود و در سود و زیان حساب نمی‌شود. اگر فقط می‌خواهید نام کالا در فهرست باشد، فقط «نام کالا» را بنویسید و بقیه را خالی بگذارید.</p>') + '<label class="fld"><span>حداقل موجودی (هشدار)</span><input class="inp ltr" name="minStock" inputmode="decimal" value="' + fa(p ? p.minStock : 0) + '"></label><button class="btn blue" type="submit">ذخیره</button></form>');
+  const f = sh.q('#gf'); f.name.addEventListener('input', () => { if (f.cat.dataset.auto === '1') f.cat.value = f.name.value.trim() ? Core.guessCategory(f.name.value) : ''; }); f.cat.addEventListener('input', () => { f.cat.dataset.auto = f.cat.value.trim() ? '0' : '1'; }); sh.q('#gf-scan').onclick = () => openScanner({ title: 'اسکن بارکد کالا', onCode: t => { f.barcode.value = t; } }); f.onsubmit = async e => { e.preventDefault(); const d = { name: f.name.value, barcode: f.barcode.value, sku: f.sku.value, unit: f.unit.value, salePrice: Core.parseMoney(f.salePrice.value || '0'), buyPrice: Core.parseMoney(f.buyPrice.value || '0'), minStock: Core.parseNum(f.minStock.value || '0'), category: f.cat.value.trim() }; if (isNaN(d.salePrice) || isNaN(d.buyPrice) || isNaN(d.minStock)) return toast('مقادیر عددی نامعتبر است.', true); const oq = (!p && f.openQty && f.openQty.value.trim() !== '') ? Core.parseNum(f.openQty.value) : 0; if (isNaN(oq) || oq < 0) return toast('موجودی اولیه نامعتبر است.', true); if (oq > 0 && !(d.buyPrice > 0)) return toast('برای موجودی اولیه، قیمت خرید را هم وارد کنید.', true); let r = p ? Core.editProduct(S, p.id, d) : Core.addProduct(S, d); if (o.onSaved && r.ok && !p) { await save(); sh.close(); toast('کالا به انبار اضافه شد.'); o.onSaved(r.product); return; } if (r.ok && !p && oq > 0) { const a = Core.addAdjust(S, { productId: r.product.id, qty: oq, cost: d.buyPrice, date: today(), note: 'موجودی اولیه', opening: true }); if (!a.ok) { Core.deleteProduct(S, r.product.id); r = a; } } if (await done(r, 'ذخیره شد.')) sh.close(); };
   autoFocus(() => f.name);
 }
 function bulkProducts() {
-  const sh = sheet('افزودن چند کالا با نام', '<form id="bf"><p class="hint">هر نام کالا را در یک خط بنویسید. فقط نام ثبت می‌شود؛ قیمت و موجودی را بعداً (مثلاً با فاکتور خرید) وارد می‌کنید. نام‌های تکراری نادیده گرفته می‌شوند.</p><textarea class="inp" name="t" rows="8" style="height:auto;padding:10px" placeholder="گوشی سامسونگ A15&#10;کابل شارژ تایپ‌سی&#10;قاب ژله‌ای"></textarea><button class="btn blue" type="submit">افزودن به انبار</button></form>');
-  sh.q('#bf').onsubmit = async e => { e.preventDefault(); const names = Array.from(new Set(e.target.t.value.split(/\n/).map(s => s.trim()).filter(Boolean))); if (!names.length) return toast('نامی نوشته نشده است.', true); let add = 0, dup = 0; for (const n of names) { const r = Core.addProduct(S, { name: n }); if (r.ok) add++; else dup++; } if (add) await save(); sh.close(); toast(fa(add) + ' کالا اضافه شد' + (dup ? ' (' + fa(dup) + ' مورد تکراری بود)' : '') + '.', !add); render(); };
+  const sh = sheet('افزودن چند کالا با نام', '<form id="bf"><p class="hint">هر نام کالا را در یک خط بنویسید. فقط نام ثبت می‌شود؛ قیمت و موجودی را بعداً (مثلاً با فاکتور خرید) وارد می‌کنید. هر کالا خودکار در دسته خودش (آیفون، کابل، شارژر، قاب و…) قرار می‌گیرد. نام‌های تکراری نادیده گرفته می‌شوند.</p><textarea class="inp" name="t" rows="8" style="height:auto;padding:10px" placeholder="گوشی سامسونگ A15&#10;کابل شارژ تایپ‌سی&#10;قاب ژله‌ای"></textarea><button class="btn blue" type="submit">افزودن به انبار</button></form>');
+  sh.q('#bf').onsubmit = async e => { e.preventDefault(); const names = Array.from(new Set(e.target.t.value.split(/\n/).map(s => s.trim()).filter(Boolean))); if (!names.length) return toast('نامی نوشته نشده است.', true); let add = 0, dup = 0; for (const n of names) { const r = Core.addProduct(S, { name: n }); if (r.ok) add++; else dup++; } if (add) await save(); sh.close(); toast(fa(add) + ' کالا اضافه شد و در دسته خودش قرار گرفت' + (dup ? ' (' + fa(dup) + ' مورد تکراری بود)' : '') + '.', !add); render(); };
   autoFocus(() => sh.q('[name=t]'));
 }
 function labelSheet(list) {
@@ -267,7 +286,7 @@ function labelSheet(list) {
 }
 function prodOpen(id) {
   const x = Core.productStats(S).find(s => s.product.id === id); if (!x) return; const p = x.product;
-  const sh = sheet(p.name, '<div class="qrbox"><div id="pq-qr"></div><div><b>کیو آر کد کالا</b><small>برای ثبت سریع در فاکتور، این کد را روی کالا بچسبانید و اسکن کنید.</small>' + (p.barcode ? '<small class="ltr">بارکد: ' + esc(p.barcode) + '</small>' : '') + '<button class="btn ghost sm" data-l>' + ico('qr') + 'چاپ برچسب</button></div></div><div class="kv"><span>موجودی</span><b>' + Core.fmtQty(x.stock) + ' ' + esc(p.unit) + '</b><span>میانگین قیمت خرید</span><b>' + fmt(x.avg) + '</b><span>ارزش موجودی</span><b>' + fmt(x.value) + '</b><span>قیمت فروش پیش‌فرض</span><b>' + fmt(p.salePrice) + '</b></div><div class="row2"><button class="btn blue" data-k>' + ico('book') + 'کاردکس</button><button class="btn ghost" data-a>' + ico('scale') + 'تعدیل موجودی</button><button class="btn ghost" data-e>' + ico('edit') + 'ویرایش</button><button class="btn red" data-d>' + ico('trash') + 'حذف</button></div>');
+  const sh = sheet(p.name, '<div class="qrbox"><div id="pq-qr"></div><div><b>کیو آر کد کالا</b><small>برای ثبت سریع در فاکتور، این کد را روی کالا بچسبانید و اسکن کنید.</small>' + (p.barcode ? '<small class="ltr">بارکد: ' + esc(p.barcode) + '</small>' : '') + '<button class="btn ghost sm" data-l>' + ico('qr') + 'چاپ برچسب</button></div></div><div class="kv"><span>دسته</span><b>' + esc(Core.catOf(p)) + '</b><span>موجودی</span><b>' + Core.fmtQty(x.stock) + ' ' + esc(p.unit) + '</b><span>میانگین قیمت خرید</span><b>' + fmt(x.avg) + '</b><span>ارزش موجودی</span><b>' + fmt(x.value) + '</b><span>قیمت فروش پیش‌فرض</span><b>' + fmt(p.salePrice) + '</b></div><div class="row2"><button class="btn blue" data-k>' + ico('book') + 'کاردکس</button><button class="btn ghost" data-a>' + ico('scale') + 'تعدیل موجودی</button><button class="btn ghost" data-e>' + ico('edit') + 'ویرایش</button><button class="btn red" data-d>' + ico('trash') + 'حذف</button></div>');
   const qc = qrCanvas(prodQrText(p), 220); qc.style.width = '110px'; qc.style.height = '110px'; sh.q('#pq-qr').appendChild(qc);
   sh.q('[data-l]').onclick = () => labelSheet([p]);
   sh.q('[data-k]').onclick = () => { sh.close(); goHash('#/kardex/' + p.id); }; sh.q('[data-a]').onclick = () => { sh.close(); adjustForm(p); }; sh.q('[data-e]').onclick = () => { sh.close(); productForm(p); };
@@ -285,6 +304,48 @@ function pageKardex(id) {
 }
 
 /* ─────────── CHEQUES ─────────── */
+/* ── warehouse: products backup, import, emptying ── */
+function warehouseTools() {
+  const n = S.products.length, adj = S.adjusts.length, inv = S.invoices.length;
+  const sh = sheet('پشتیبان و حذف کالاها', '<div class="card"><div class="ch">' + ico('save') + 'پشتیبان کالاها</div><p class="hint">فهرست همه کالاها با دسته، قیمت‌ها، بارکد و <b>موجودی فعلی و میانگین قیمت خرید</b> در یک فایل ذخیره می‌شود. بعداً می‌توانید همین فایل را دوباره وارد کنید.</p><div class="row2"><button class="btn green" data-x>' + ico('share') + 'خروجی کالاها</button><button class="btn ghost" data-i>' + ico('folder') + 'ورود کالا از فایل</button></div><p class="hint">برای ورود، فایل پشتیبان کالاها، پشتیبان کامل برنامه، یا یک فایل متنی (هر خط یک نام کالا) را انتخاب کنید.</p></div>' +
+    '<div class="card"><div class="ch">' + ico('trash') + 'حذف موجودی یا کالاها</div><label class="chk rs"><input type="radio" name="wm" value="stock" checked><span><b>فقط موجودی‌ها پاک شود</b><small>همه ' + fa(n) + ' کالا با نام، دسته و قیمت می‌مانند؛ موجودی همه صفر می‌شود.</small></span></label><label class="chk rs"><input type="radio" name="wm" value="all"><span><b>انبار کاملاً خالی شود</b><small>همه کالاها و موجودی‌شان حذف می‌شوند.</small></span></label>' +
+    '<p class="hint">پاک می‌شود: ' + fa(adj) + ' ورود و تعدیل انبار' + (inv ? ' و <b class="debit">' + fa(inv) + ' فاکتور خرید و فروش</b> (چون موجودی را جابه‌جا کرده‌اند؛ حساب اشخاص هم به همان اندازه تغییر می‌کند)' : '') + '. اشخاص، دریافت و پرداخت‌ها، چک‌ها و هزینه‌ها دست نمی‌خورند.</p><label class="fld"><span>برای تأیید، کلمه «حذف» را بنویسید</span><input class="inp" name="cf" autocomplete="off"></label><button class="btn red" data-del>حذف</button></div>', { tall: true });
+  sh.q('[data-x]').onclick = () => productExport();
+  sh.q('[data-i]').onclick = () => { sh.close(); productImportPick(); };
+  sh.q('[data-del]').onclick = async () => {
+    const mode = sh.q('[name=wm]:checked').value;
+    if (sh.q('[name=cf]').value.trim() !== 'حذف') return toast('کلمه تأیید درست نیست.', true);
+    const r = Core.clearWarehouse(S, { products: mode === 'all', invoices: true }); if (!r.ok) return toast(r.error, true);
+    sh.close(true);
+    if (!(await backupFirst('پشتیبان قبل از حذف', 'پیشنهاد: اول «خروجی کالاها» را از همین صفحه بگیرید تا بتوانید کالاها را دوباره وارد کنید. پشتیبان کامل برنامه هم همه‌چیز (کالاها، فاکتورها و حساب‌ها) را نگه می‌دارد.', mode === 'all' ? 'انبار را خالی کن' : 'موجودی‌ها را پاک کن', true))) return;
+    try { await kvSet('state_before_reset', JSON.stringify(S)); } catch (x) { /* ignore */ }
+    S = r.state; UI.prodCat = ''; await save(); toast(mode === 'all' ? 'انبار خالی شد.' : 'موجودی همه کالاها صفر شد.'); render();
+  };
+}
+async function productExport() {
+  if (!S.products.length) return toast('کالایی برای خروجی وجود ندارد.', true);
+  if (await exportFile('fixquick-products-' + stamp() + '.json', Core.exportProducts(S), 'application/json')) toast(fa(S.products.length) + ' کالا در فایل ذخیره شد.');
+}
+function productImportPick() {
+  const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,.txt,.csv,application/json,text/plain'; i.style.display = 'none'; document.body.appendChild(i);
+  i.onchange = async () => { const f = i.files[0]; i.remove(); if (f) productImportText(await f.text()); };
+  i.click();
+}
+async function productImportText(text) {
+  const r = Core.parseProducts(text); if (!r.ok) return toast(r.error, true);
+  const items = r.items, names = new Set(S.products.map(p => p.name)), fresh = items.filter(x => !names.has(String(x.name).trim()));
+  const withStock = fresh.filter(x => x.stock > 0).length, cats = {}; fresh.forEach(x => { const c = x.category || Core.guessCategory(x.name); cats[c] = (cats[c] || 0) + 1; });
+  const catList = Object.keys(cats).sort((a, b) => Core.catRank(a) - Core.catRank(b)).map(c => '<li>' + esc(c) + ': ' + fa(cats[c]) + '</li>').join('');
+  const sh = sheet('ورود کالا از فایل', '<p class="msg">در فایل ' + fa(items.length) + ' کالا هست؛ <b>' + fa(fresh.length) + ' کالای جدید</b> اضافه می‌شود' + (items.length - fresh.length ? ' و ' + fa(items.length - fresh.length) + ' کالا چون هم‌نامش از قبل هست، رد می‌شود' : '') + '.</p>' + (catList ? '<div class="card"><div class="ch">دسته‌بندی خودکار</div><ul class="catsum">' + catList + '</ul></div>' : '') +
+    (withStock ? '<label class="chk"><input type="checkbox" name="stk" checked> موجودی ' + fa(withStock) + ' کالا هم با میانگین قیمت خریدش وارد شود (موجودی اول دوره)</label>' : '') + '<button class="btn blue" data-ok' + (fresh.length ? '' : ' disabled') + '>وارد کن</button>');
+  sh.q('[data-ok]').onclick = async () => {
+    const stk = !!(sh.q('[name=stk]') && sh.q('[name=stk]').checked);
+    const st2 = Object.assign({}, S, { products: S.products.slice(), adjusts: S.adjusts.slice() });
+    const res = Core.importProducts(st2, fresh, { stock: stk }); const a = Core.audit(st2);
+    if (a.length) { toast('ورود انجام نشد: ' + a[0], true); return; }
+    S = st2; await save(); sh.close(); toast(fa(res.added) + ' کالا وارد شد' + (res.withStock ? ' (' + fa(res.withStock) + ' با موجودی)' : '') + '.'); UI.prodCat = ''; goHash('#/products'); render();
+  };
+}
 function pageCheques() {
   const t = today(); const list = S.cheques.filter(c => UI.chqTab === 'open' ? !c.done : c.done).sort((a, b) => UI.chqTab === 'open' ? (a.dueDate < b.dueDate ? -1 : 1) : (a.doneAt < b.doneAt ? 1 : -1));
   const open = S.cheques.filter(c => !c.done), rec = open.filter(c => c.direction === 'receive').reduce((s, c) => s + c.amount, 0), pay = open.filter(c => c.direction === 'pay').reduce((s, c) => s + c.amount, 0);
@@ -443,7 +504,7 @@ function setPin() {
 /* ─────────── actions ─────────── */
 const actions = {
   go: d => { goHash(d.h); },
-  chip: d => { UI[d.k] = d.v; if (d.k === 'rep' && d.v === 'custom' && !UI.repFrom) { UI.repFrom = Core.periodRange('month').from; UI.repTo = today(); } render(); },
+  chip: d => { UI[d.k] = d.v; if (d.k === 'prodCat') UI.limProd = 100; if (d.k === 'rep' && d.v === 'custom' && !UI.repFrom) { UI.repFrom = Core.periodRange('month').from; UI.repTo = today(); } render(); },
   addPerson: () => personForm(), editPerson: d => personForm(Core.byId(S.people, +d.p)),
   toggleArchived: () => { UI.showArchived = !UI.showArchived; render(); },
   archive: async d => { const p = Core.byId(S.people, +d.p); await done(Core.setArchived(S, p.id, !p.archived), p.archived ? 'فعال شد.' : 'بایگانی شد.'); goHash('#/people'); },
@@ -458,13 +519,13 @@ const actions = {
   pickProd: (d, el) => {
     const type = $('#nf [name=type]').value, row = el.closest('.it-row');
     const fill = p => { row.dataset.pid = p.id; el.textContent = p.name; const pr = $('[name=price]', row); if (!pr.value) { const dp = (type === 'sale' || type === 'sale_return') ? p.salePrice : p.buyPrice; if (dp) pr.value = Core.fmtInput((dp)); } const stk = Core.replay(S).stock[p.id], have = stk ? stk.stock : 0; $('.stk', row).textContent = 'موجودی فعلی: ' + Core.fmtQty(have) + ' ' + p.unit; $('.stk', row).classList.toggle('debit', have <= 0); if (have <= 0 && (type === 'sale' || type === 'purchase_return')) toast('«' + p.name + '» موجودی ندارد؛ فاکتور بدون موجودی ثبت نمی‌شود.', true); calcInvoice(); };
-    pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', onAdd: () => productForm(null, { inInvoice: true, onSaved: fill }) });
+    pickList('انتخاب کالا', Core.productStats(S).map(x => ({ value: x.product.id, label: x.product.name, sub: x.product.sku, cat: Core.catOf(x.product), right: Core.fmtQty(x.stock) + ' ' + x.product.unit, cls: x.stock <= 0 ? 'debit' : '' })).sort((a, b) => faCmp(a.label, b.label)), v => fill(Core.byId(S.products, +v)), { addNew: 'کالای جدید', cats: true, onAdd: () => productForm(null, { inInvoice: true, onSaved: fill, cat: UI.pickCat || '' }) });
   },
   plGo: d => { UI.rep = d.k; goHash('#/reports'); },
   more: d => { UI[d.k] += { limInv: 100, limProd: 100, limLedger: 200 }[d.k] || 150; render(); },
-  bulkProducts: () => bulkProducts(), bulkPeople: () => bulkPeople(),
+  bulkProducts: () => bulkProducts(), whTools: () => warehouseTools(), prodImport: () => productImportPick(), prodExport: () => productExport(), bulkPeople: () => bulkPeople(),
   scanProd: () => openScanner({ title: 'اسکن کالا', onCode: t => { const p = findProductByCode(t); if (p) prodOpen(p.id); else confirmBox('کالایی با کد «' + t + '» پیدا نشد. کالای جدید با این بارکد ساخته شود؟', 'ساخت کالا').then(y => { if (y) productForm(null, { barcode: t }); }); } }),
-  labelsAll: () => { const q = UI.prodQ.trim(); const list = S.products.filter(p => !q || matchQ(p.name + ' ' + p.sku + ' ' + (p.barcode || ''), q)); if (list.length > 960) return toast('اول با جستجو فهرست را کوتاه‌تر کنید (حداکثر ۹۶۰ کالا).', true); labelSheet(list); },
+  labelsAll: () => { const list = prodFiltered(); if (list.length > 960) return toast('اول با جستجو فهرست را کوتاه‌تر کنید (حداکثر ۹۶۰ کالا).', true); labelSheet(list); },
   scanInv: () => openScanner({ title: 'اسکن کالاها', hint: 'کالاها را پشت سر هم اسکن کنید؛ هر کد یک عدد به فاکتور اضافه می‌کند. برای پایان، ✕ را بزنید.', continuous: true, onCode: t => scanIntoInvoice(t) }),
   activate: () => paywall(),
   copyDev: async () => { const c = await myDeviceCode(); try { await navigator.clipboard.writeText(c); toast('کد دستگاه کپی شد.'); } catch (e) { shareText(c); } },

@@ -273,6 +273,7 @@
     if (st.products.some(p => p.name === name)) return err('کالایی با این نام وجود دارد.');
     const bc = String(d.barcode || '').trim(); if (bc && st.products.some(p => p.barcode === bc)) return err('این بارکد برای کالای دیگری ثبت شده است.');
     const p = { id: nid(st), name, barcode: bc, sku: String(d.sku || '').trim(), unit: String(d.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(d.minStock) || 0), salePrice: Math.max(0, Math.round(d.salePrice) || 0), buyPrice: Math.max(0, Math.round(d.buyPrice) || 0) };
+    const cat = String(d.category || '').trim(); if (cat && cat !== Core.guessCategory(name)) p.category = cat;
     st.products.push(p); return ok({ product: p });
   };
   Core.editProduct = function (st, id, d) {
@@ -281,8 +282,118 @@
     if (st.products.some(x => x.id !== id && x.name === name)) return err('کالایی با این نام وجود دارد.');
     const bc = String(d.barcode || '').trim(); if (bc && st.products.some(x => x.id !== id && x.barcode === bc)) return err('این بارکد برای کالای دیگری ثبت شده است.');
     Object.assign(p, { name, barcode: bc, sku: String(d.sku || '').trim(), unit: String(d.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(d.minStock) || 0), salePrice: Math.max(0, Math.round(d.salePrice) || 0), buyPrice: Math.max(0, Math.round(d.buyPrice) || 0) });
+    if (d.category !== undefined) { const cat = String(d.category || '').trim(); if (cat && cat !== Core.guessCategory(name)) p.category = cat; else delete p.category; }
     return ok();
   };
+  /* ───────────── smart product categories ─────────────
+   * A product's category is guessed from its name (rules below) unless the user picked one by hand (p.category).
+   * The guess is computed on the fly, so better rules apply to every product automatically. */
+  Core.norm = s => Core.toEn(String(s == null ? '' : s)).replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[ۀة]/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/[‌‏‎_\-()\/،,+]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
+  Core.OTHER_CAT = 'سایر لوازم جانبی';
+  // [category, keywords, strength]  strength: 1 strong (wins even when it comes later in the name), 0 normal, -1 weak (only when nothing else matches)
+  const CAT_RULES = [
+    ['آیفون', 'آیفون|ایفون|iphone', -1],
+    ['گوشی سامسونگ', 'سامسونگ|گلکسی|galaxy|samsung', -1],
+    ['گوشی شیائومی', 'شیائومی|شیاومی|ردمی|پوکو|xiaomi|redmi|poco', -1],
+    ['سایر گوشی‌ها', 'گوشی|موبایل|هواوی|انر|نوکیا|موتورولا|ریلمی|اوپو|وان پلاس|پیکسل|ویوو|تکنو|اینفینیکس|جی ال ایکس|huawei|honor|nokia|motorola|realme|oppo|oneplus|pixel|vivo|tecno|infinix|glx', -1],
+    ['تبلت و آیپد', 'ایپد|ipad|تبلت|tablet|گلکسی تب|galaxy tab', 0],
+    ['ساعت هوشمند', 'اپل واچ|ساعت هوشمند|ساعت|واچ|watch|مچ بند|بند ساعت', 0],
+    ['هندزفری و هدفون', 'هندزفری|هندز فری|هدفون|هدست|ایرپاد|ایر پاد|ایربادز|ایرباد|ایرفون|airpods|airpod|earbuds|buds|headphone|headset|earphone|tws', 0],
+    ['کابل شارژ و داده', 'کابل|cable|سیم شارژ', 0],
+    ['شارژر فندکی', 'فندکی|شارژر ماشین|car charger', 1],
+    ['شارژر وایرلس و مگ‌سیف', 'وایرلس|wireless|مگ سیف|مگسیف|magsafe|شارژر بی سیم|پد شارژ', 1],
+    ['پاوربانک', 'پاوربانک|پاور بانک|power bank|powerbank|شارژر همراه', 1],
+    ['آداپتور و شارژر', 'اداپتور|شارژر|کلگی|adapter|charger', 0],
+    ['قاب و کاور', 'قاب|کاور|کیف|کیس|case|cover', 0],
+    ['گلس و محافظ صفحه', 'گلس|محافظ صفحه|محافظ لنز|محافظ|glass|هیدروژل|screen protector', 0],
+    ['اسپیکر و صوتی', 'اسپیکر|speaker|بلندگو|میکروفن|میکروفون|مایک', 0],
+    ['هولدر و پایه', 'هولدر|پایه|نگهدارنده|holder|stand|استند|مونوپاد|سه پایه|پاپ سوکت', 0],
+    ['مبدل، هاب و گیرنده', 'مبدل|تبدیل|هاب|otg|دانگل|گیرنده|hub|رابط', 0],
+    ['حافظه و فلش', 'فلش مموری|فلش|مموری|کارت حافظه|رم|memory|flash|میکرو اس دی|micro sd|هارد|ssd', 0],
+    ['قطعات و تعمیرات', 'ال سی دی|lcd|ال ای دی|oled|تاچ|باتری|battery|برد|فلت|سوکت|درب پشت|شیشه دوربین|هویه|پیچ گوشتی|ابزار', 0],
+    [Core.OTHER_CAT, 'قلم|pencil|stylus|لوازم جانبی|جاکارتی|کیف پول|استرپ|بند موبایل|بند گوشی|تگ|ایرتگ|airtag', 0]
+  ];
+  const HEADS = new Set(['قاب', 'کاور', 'کیف', 'گلس', 'محافظ', 'هولدر', 'پایه', 'نگهدارنده', 'کابل', 'باتری', 'جاکارتی', 'کیس', 'تگ', 'هدفون', 'هندزفری', 'اسپیکر', 'مبدل', 'پاوربانک', 'فلش']);
+  Core.CATS = CAT_RULES.map(r => r[0]);
+  const catRx = CAT_RULES.map(([cat, kws, str]) => ({ cat, str, rx: kws.split('|').map(k => new RegExp('(^|\\s)' + Core.norm(k).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=\\s|$)')) }));
+  const STORAGE = /(^|\s)(\d+ ?(گیگ|گیگابایت|ترابایت|ترا|gb|tb)|گیگ|ترابایت)(\s|$)/;
+  const guessCache = new Map();
+  Core.guessCategory = function (name) {
+    const n = Core.norm(name); if (!n) return Core.OTHER_CAT;
+    if (guessCache.has(n)) return guessCache.get(n);
+    let best = null, bestScore = Infinity;
+    catRx.forEach((r, order) => {
+      for (const rx of r.rx) {
+        const m = rx.exec(n); if (!m) continue;
+        const pos = m.index + m[1].length, word = n.slice(pos).split(' ')[0];
+        if (order < 4 && pos > 0 && !STORAGE.test(n) && !/^(گوشی|موبایل) /.test(n)) continue; // a phone/brand word inside an accessory name ("تگ گوشی", "قاب سامسونگ") is not a phone
+        let sc = pos + (r.str > 0 ? -1000 : r.str < 0 ? 1000 : 0);
+        if (order === 3 && (word === 'گوشی' || word === 'موبایل')) sc += 500; // "گوشی سامسونگ …": the brand decides
+        if (order < 4 && /^(گوشی|موبایل)( |$)/.test(n)) sc -= 3000; // name starts with «گوشی»: it is a phone
+        if (pos === 0 && HEADS.has(word)) sc = -2000; // "قاب …", "کابل …": the first word decides
+        sc += order / 100;
+        if (sc < bestScore) { bestScore = sc; best = r.cat; }
+      }
+    });
+    const c = best || Core.OTHER_CAT; if (guessCache.size > 20000) guessCache.clear(); guessCache.set(n, c); return c;
+  };
+  Core.catOf = p => (p.category && String(p.category).trim()) || Core.guessCategory(p.name);
+  // categories in use, in the standard order, with counts
+  Core.categoryCounts = function (st) {
+    const m = new Map(); for (const p of st.products) { const c = Core.catOf(p); m.set(c, (m.get(c) || 0) + 1); }
+    const rank = c => { const i = Core.CATS.indexOf(c); return i < 0 ? 900 : c === Core.OTHER_CAT ? 999 : i; };
+    return [...m.entries()].map(([cat, n]) => ({ cat, n })).sort((a, b) => rank(a.cat) - rank(b.cat) || a.cat.localeCompare(b.cat, 'fa'));
+  };
+  Core.catRank = c => { const i = Core.CATS.indexOf(c); return c === Core.OTHER_CAT ? 999 : i < 0 ? 900 : i; };
+
+  /* products backup (export / import), for moving or rebuilding the warehouse */
+  Core.exportProducts = function (st) {
+    const rp = Core.replay(st);
+    const products = st.products.map(p => { const s = rp.stock[p.id] || { stock: 0, avg: 0 }; return { name: p.name, category: Core.catOf(p), catManual: !!p.category, sku: p.sku || '', barcode: p.barcode || '', unit: p.unit, salePrice: p.salePrice, buyPrice: p.buyPrice, minStock: p.minStock, stock: Math.max(0, s.stock), avg: Math.round(s.avg) }; });
+    return JSON.stringify({ app: 'fixquick-products', version: 1, exportedAt: new Date().toISOString(), products });
+  };
+  // accepts the products backup (JSON), a full app backup, or plain text with one product name per line
+  Core.parseProducts = function (text) {
+    text = String(text || '').replace(/^﻿/, '');
+    let o = null; try { o = JSON.parse(text); } catch (e) { o = null; }
+    const num = v => { const n = Core.parseNum(v); return isFinite(n) && n > 0 ? n : 0; };
+    if (o && typeof o === 'object') {
+      let list = null, full = null;
+      if (o.app === 'fixquick-products' && Array.isArray(o.products)) list = o.products;
+      else if (o.app === 'fixquick-accounting' && o.data && Array.isArray(o.data.products)) { full = o.data; list = o.data.products; }
+      else return err('این فایل، پشتیبان کالاهای این برنامه نیست.');
+      if (full) { const rp = Core.replay(Object.assign(Core.emptyState(), full)); list = list.map(p => { const s = rp.stock[p.id] || { stock: 0, avg: 0 }; return Object.assign({}, p, { catManual: !!p.category, stock: Math.max(0, s.stock), avg: Math.round(s.avg) }); }); }
+      const items = list.filter(p => p && String(p.name || '').trim()).map(p => ({ name: String(p.name).trim(), category: p.catManual ? String(p.category || '').trim() : '', sku: String(p.sku || ''), barcode: String(p.barcode || ''), unit: String(p.unit || 'عدد'), salePrice: Math.round(num(p.salePrice)), buyPrice: Math.round(num(p.buyPrice)), minStock: num(p.minStock), stock: Math.round(num(p.stock) * 1000) / 1000, avg: Math.round(num(p.avg)) }));
+      return ok({ items });
+    }
+    const items = Array.from(new Set(text.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean))).map(name => ({ name }));
+    if (!items.length) return err('فایل خالی است.');
+    return ok({ items });
+  };
+  // adds products that don't exist yet (same name = skipped); stock comes in as opening stock at its average cost
+  Core.importProducts = function (st, items, o) {
+    o = o || {}; const names = new Set(st.products.map(p => p.name)), codes = new Set(st.products.map(p => p.barcode).filter(Boolean));
+    let added = 0, dup = 0, withStock = 0; const date = o.date || Core.todayISO();
+    for (const it of items) {
+      const name = String(it.name || '').trim(); if (!name) continue;
+      if (names.has(name)) { dup++; continue; }
+      const bc = it.barcode && !codes.has(it.barcode) ? it.barcode : '';
+      const p = { id: nid(st), name, barcode: bc, sku: String(it.sku || '').trim(), unit: String(it.unit || 'عدد').trim() || 'عدد', minStock: Math.max(0, Number(it.minStock) || 0), salePrice: Math.max(0, Math.round(it.salePrice) || 0), buyPrice: Math.max(0, Math.round(it.buyPrice) || 0) };
+      if (it.category && Core.guessCategory(name) !== it.category) p.category = it.category;
+      st.products.push(p); names.add(name); if (bc) codes.add(bc); added++;
+      if (o.stock && it.stock > 0) { st.adjusts.push({ id: nid(st), productId: p.id, qty: Math.round(it.stock * 1000) / 1000, cost: Math.round(it.avg || it.buyPrice || 0), date, note: 'موجودی اولیه (ورود از فایل)', opening: true }); withStock++; }
+    }
+    return ok({ added, dup, withStock });
+  };
+  // empty the warehouse: o.products → also delete the products themselves; stock always goes (stock entries + the invoices that moved it)
+  Core.clearWarehouse = function (st, o) {
+    o = o || {};
+    const r = Core.resetData(st, { adjusts: true, invoices: true });
+    if (!r.ok) return r;
+    if (o.products) r.state.products = [];
+    return ok({ state: r.state, removed: Object.assign(r.removed, { products: o.products ? st.products.length : 0 }) });
+  };
+
   Core.productUsed = (st, id) => st.invoices.some(i => i.items.some(l => l.productId === id)) || st.adjusts.some(a => a.productId === id);
   Core.deleteProduct = function (st, id) {
     if (Core.productUsed(st, id)) return err('این کالا در فاکتور یا تعدیل انبار استفاده شده و حذف نمی‌شود.');

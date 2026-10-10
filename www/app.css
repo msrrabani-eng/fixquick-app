@@ -165,3 +165,10 @@ select.inp{appearance:auto}
 .stat b,.pl b,.hero b{white-space:nowrap;overflow-wrap:normal;overflow:hidden;text-overflow:ellipsis}
 .stat b{font-size:min(calc(19px * var(--fs,1)),5.2vw)}.pl b{font-size:min(calc(17px * var(--fs,1)),4.8vw)}.hero b{font-size:min(calc(30px * var(--fs,1)),8.5vw)}
 .stat small{min-height:2.6em}
+/* product categories */
+.chips.cats .chip i{font-style:normal;opacity:.7;font-size:.85em;margin-inline-start:2px}
+.grp{background:var(--soft);color:var(--blue);font-weight:800;font-size:calc(12.5px * var(--fs,1));padding:7px 13px;border-bottom:1px solid var(--line)}
+.ptools{margin-bottom:9px}.ptools .btn.sm{flex:1 1 auto}
+.cat-auto{color:var(--mut);font-weight:400}
+.catsum{margin:0;padding-inline-start:18px;columns:2;font-size:calc(13px * var(--fs,1));line-height:1.9}
+.item small{color:var(--mut)}
